@@ -1,68 +1,108 @@
-# Como integrar un repositorio nuevo
+# Como Dar De Alta Un Repositorio Nuevo
 
-## 1. Preparar el stack en el servidor
+Esta es la guia operativa recomendada en la v2.
 
-1. Crear el directorio del stack, por ejemplo `/opt/stacks/mi-app/`.
-2. Asegurar que `docker-compose.yml` usa `${IMAGE_NAME}:${IMAGE_TAG}` en los servicios a desplegar.
-3. Elegir una ruta para el runtime env file, por ejemplo `/opt/stacks/mi-app/.deploy.env`.
+Todo el alta se hace desde el contenedor `admin`, no editando YAML a mano y no usando endpoints HTTP de escritura.
 
-Ejemplo base en `docs/examples/target-stack.example.yml`.
-
-## 2. Autenticar Docker contra GHCR
+## 1. Levantar La Base Del Servicio
 
 ```bash
-docker login ghcr.io -u <usuario> -p <token-con-lectura-de-packages>
+docker compose up -d webhook redis
 ```
 
-## 3. Crear la configuración del repo
-
-Copiar `config/repos/example.repo.yml` a un archivo nuevo dentro de `config/repos/` y ajustar:
-
-- `repository`: `owner/repo`
-- `webhook.bearer_token_env`: nombre de la env var del Bearer
-- `webhook.hmac_secret_env`: nombre de la env var del HMAC
-- `environments.production.image_name`: imagen GHCR sin tag
-- `environments.production.compose_file`: ruta absoluta al compose
-- `environments.production.runtime_env_file`: ruta absoluta al `.deploy.env`
-- `environments.production.services`: servicios a actualizar
-- `environments.production.allowed_workflows`: nombre del workflow permitido
-- `environments.production.allowed_branches`: ramas permitidas
-- `environments.production.allowed_tag_pattern`: regex del tag
-
-## 4. Generar y guardar secretos
+## 2. Crear La Config Basica Del Repo
 
 ```bash
-openssl rand -hex 32
-openssl rand -hex 32
+docker compose --profile admin run --rm admin repo add --repository acme/payments-api
 ```
 
-Usa uno como Bearer y otro como HMAC.
+Que hace:
 
-Añadirlos al `.env` del servicio:
+- crea `config/repos/acme--payments-api.yml`
+- propone defaults funcionales para `production`
+- genera paths canonicos bajo `/opt/stacks/acme/payments-api`
 
-```env
-MI_APP_WEBHOOK_BEARER=<valor>
-MI_APP_WEBHOOK_HMAC=<valor>
+## 3. Generar Los Secrets Del Repo
+
+```bash
+docker compose --profile admin run --rm admin repo secrets generate --repository acme/payments-api
 ```
 
-## 5. Configurar GitHub Actions
+Que hace:
 
-Añadir estos secrets en el repo de GitHub:
+- genera `Bearer` y `HMAC`
+- los guarda en el `.env` del servicio
+- no los imprime por defecto
 
-- `DEPLOY_WEBHOOK_URL`
-- `DEPLOY_BEARER_TOKEN`
-- `DEPLOY_HMAC_SECRET`
+## 4. Crear El Stack Local
 
-Y copiar/adaptar `.github/workflows/deploy.example.yml`.
+Ejemplo minimo con `app` y `postgres`:
 
-## 6. Reiniciar el servicio
+```bash
+docker compose --profile admin run --rm admin stack init \
+  --repository acme/payments-api \
+  --environment production \
+  --services app,postgres
+```
+
+Que hace:
+
+- crea `/opt/stacks/acme/payments-api/`
+- genera `docker-compose.yml`
+- genera `.env`
+- crea `.deploy.env` inicial
+- sincroniza `compose_file`, `runtime_env_file` y `services` en la config del repo
+
+## 5. Validar Antes Del Restart
+
+```bash
+docker compose --profile admin run --rm admin validate
+```
+
+Si esto falla, corrige primero los problemas.
+
+## 6. Reiniciar El Webhook
 
 ```bash
 docker compose restart webhook
 ```
 
-## 7. Verificar
+## 7. Mostrar Los Secrets Para GitHub
 
-1. Hacer push a la rama configurada.
-2. Verificar que GitHub Actions publica la imagen y llama al webhook.
-3. Consultar `/deployments/recent` con el token admin de lectura.
+```bash
+docker compose --profile admin run --rm admin repo secrets show --repository acme/payments-api
+```
+
+Usa esos valores para poblar en GitHub:
+
+- `DEPLOY_BEARER_TOKEN`
+- `DEPLOY_HMAC_SECRET`
+- `DEPLOY_WEBHOOK_URL`
+
+## 8. Configurar GitHub Actions
+
+El workflow del repo debe enviar el webhook con:
+
+- `Authorization: Bearer <DEPLOY_BEARER_TOKEN>`
+- `X-Deploy-Timestamp`
+- `X-Deploy-Signature`
+- body con `repository`, `environment`, `tag`, `sha`, `workflow`, `ref_name`, `run_id`
+
+## 9. Verificar
+
+Puedes verificar por lectura remota:
+
+```bash
+curl https://deploy.mi-dominio.com/health
+curl https://deploy.mi-dominio.com/deployments/recent \
+  -H "Authorization: Bearer <admin_read_token>"
+```
+
+O lanzar una prueba local de deploy manual:
+
+```bash
+docker compose --profile admin run --rm admin deploy manual \
+  --repository acme/payments-api \
+  --environment production \
+  --tag sha-abc1234
+```

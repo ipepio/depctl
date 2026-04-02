@@ -17,6 +17,8 @@ import {
   type ServerYaml,
 } from './schema';
 import { ConfigError } from './errors';
+import { getComposeServiceNames } from './compose';
+import { resolveConfigPaths } from './paths';
 
 export interface LoadConfigOptions {
   serverConfigPath?: string;
@@ -154,6 +156,26 @@ function validateEnvironmentFiles(
       error: String(error),
     });
   }
+
+  const composeServices = getComposeServiceNames(config.composeFile);
+  if (composeServices.length === 0) {
+    throw new ConfigError(`Compose file does not define services: ${config.composeFile}`, {
+      repository,
+      environment,
+    });
+  }
+
+  const missingServices = config.services.filter((service) => !composeServices.includes(service));
+  if (missingServices.length > 0) {
+    throw new ConfigError(
+      `Configured services are missing in compose file: ${missingServices.join(', ')}`,
+      {
+        repository,
+        environment,
+        composeFile: config.composeFile,
+      },
+    );
+  }
 }
 
 function toEnvironmentConfig(yamlEnvironment: RepoYaml['environments'][string]): EnvironmentConfig {
@@ -259,12 +281,7 @@ function mergeTimeouts(
 }
 
 export async function loadConfig(options: LoadConfigOptions = {}): Promise<LoadedConfig> {
-  const serverConfigPath = resolve(
-    options.serverConfigPath ?? process.env.CONFIG_PATH ?? './config/server.yml',
-  );
-  const reposConfigPath = resolve(
-    options.reposConfigPath ?? process.env.REPOS_CONFIG_PATH ?? './config/repos',
-  );
+  const { serverConfigPath, reposConfigPath } = resolveConfigPaths(options);
 
   const serverParsed = parseYamlFile<unknown>(serverConfigPath);
   const serverYaml = ServerYamlSchema.parse(serverParsed);

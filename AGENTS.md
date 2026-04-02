@@ -8,7 +8,15 @@ Documento de referencia para cualquier agente o desarrollador que trabaje en est
 
 `docker-deploy-webhook` es un servicio HTTP autonomo que se instala una vez por servidor. Recibe webhooks de GitHub Actions, valida la peticion y ejecuta despliegues Docker Compose locales de forma controlada y segura.
 
-No es un orquestador. No controla otros servidores. No genera configuracion de infraestructura. Solo despliega lo que ya esta configurado en su propio host.
+No es un orquestador. No controla otros servidores. No genera infraestructura remota. Solo opera sobre configuracion local del propio host.
+
+### Objetivo v2 acordado
+
+- La API remota queda limitada a `POST /deploy` y endpoints de lectura.
+- Las operaciones admin de escritura salen de la API y pasan a una interfaz local `CLI/TUI`.
+- La misma imagen del proyecto debe soportar dos modos: `webhook` expuesto y contenedor admin puntual sin puertos.
+- Los stacks gestionados se estandarizan bajo `/opt/stacks/<owner>/<repo>`.
+- La interfaz local puede generar o actualizar configuracion local del stack y del repo, pero nunca a partir de datos remotos no confiables.
 
 ---
 
@@ -17,29 +25,34 @@ No es un orquestador. No controla otros servidores. No genera configuracion de i
 Estas reglas no son negociables y aplican a toda implementacion presente y futura.
 
 ### Arquitectura
+
 - Una instancia del servicio por servidor.
 - Un servidor solo despliega sus propios stacks Docker Compose locales.
 - La coordinacion multi-servidor la realiza GitHub Actions, no este servicio.
 
 ### Seguridad
+
 - La configuracion local manda. El payload nunca decide rutas, compose files, servicios ni comandos.
 - Los secretos no viven en YAML ni en el repositorio. Solo en variables de entorno.
 - No se ejecuta ningun comando shell construido con datos del payload o de la config.
 - Solo se ejecuta `docker compose` sobre `compose_file` y `services` conocidos y validados.
 - Los despliegues automaticos solo entran por `POST /deploy` con `Bearer + HMAC + anti-replay`.
-- Los despliegues manuales solo entran por endpoints admin autenticados.
+- Los despliegues manuales, redeploys y retries admin en v2 solo entran por interfaz local autenticada, no por API remota.
 
 ### Cola y concurrencia
+
 - La cola es global por servidor. Se ejecuta un unico job a la vez.
 - Para un mismo `repo + environment`, solo se conserva el ultimo job pendiente.
 - Los duplicados del mismo `repo + environment + tag` se ignoran (salvo `force` admin).
 - Los jobs en estado `running` interrumpidos por reinicio del servicio se marcan como fallidos y no se reintentan automaticamente.
 
 ### Configuracion y arranque
+
 - Si la configuracion YAML es invalida, falta un secreto requerido o un `compose_file` no existe, el servicio no arranca. Fail fast.
 - La configuracion solo se carga al arrancar. Para aplicar cambios hay que reiniciar el servicio.
 
 ### Rollback
+
 - El rollback automatico es limitado. Solo se intenta si existe un `previous_tag` fiable guardado.
 - Solo se hace rollback si el fallo ocurre despues de haber aplicado el nuevo tag.
 - El estado de rollback (`successful_tag`, `previous_tag`) se persiste en disco y en Redis.
@@ -49,6 +62,7 @@ Estas reglas no son negociables y aplican a toda implementacion presente y futur
 ## Convenciones de codigo
 
 ### Lenguaje y runtime
+
 - Node.js + TypeScript estricto (`strict: true`).
 - Sin `any` implicito. Tipar todo lo que entre o salga del sistema.
 
@@ -58,6 +72,7 @@ Estas reglas no son negociables y aplican a toda implementacion presente y futur
 src/
 ├── config/           # Carga, validacion y tipos de configuracion
 ├── api/              # Rutas HTTP, middlewares y controladores
+├── cli/              # Interfaz local CLI/TUI para administracion v2
 ├── auth/             # Validacion Bearer, HMAC, anti-replay, tokens admin
 ├── queue/            # Integracion Redis, cola global, worker
 ├── deploy/           # Motor de despliegue, executor Docker, healthcheck, rollback
@@ -68,6 +83,7 @@ src/
 ```
 
 ### Nombrado
+
 - Clases: `PascalCase`.
 - Funciones, variables, propiedades: `camelCase`.
 - Constantes globales: `UPPER_SNAKE_CASE`.
@@ -75,11 +91,13 @@ src/
 - Tests: `kebab-case.test.ts` junto al archivo que testean.
 
 ### Errores
+
 - Usar clases de error propias para cada dominio: `ConfigError`, `AuthError`, `DeployError`, etc.
 - No capturar errores y silenciarlos. Loguear siempre con contexto suficiente.
 - Los errores en el arranque deben terminar el proceso con codigo de salida no cero.
 
 ### Logger
+
 - Logger estructurado (JSON en produccion, formato legible en desarrollo).
 - Cada log debe incluir: `level`, `timestamp`, `message` y contexto relevante (`repo`, `environment`, `job_id`, `tag`).
 - No usar `console.log` fuera del logger.
@@ -89,25 +107,32 @@ src/
 ## Convenciones de configuracion
 
 ### Archivos
+
 - Config base del servidor: `config/server.yml`
 - Config por repositorio: `config/repos/<nombre>.yml`
+- Root de stacks gestionados: `/opt/stacks/<owner>/<repo>`
 
 ### Identificador de repositorio
+
 - Siempre en formato `owner/repo`. Ejemplo: `acme/clash-hub-api`.
 
 ### Variables de compose estandar
+
 - `IMAGE_NAME`: imagen Docker completa sin tag. Ejemplo: `ghcr.io/acme/clash-hub-api`.
 - `IMAGE_TAG`: tag inmutable del despliegue. Ejemplo: `sha-abc1234`.
 - El archivo `runtime_env_file` del target recibira estas dos variables antes de cada despliegue.
 
 ### Secretos
+
 - Nunca en YAML. El YAML solo referencia el nombre de la variable de entorno.
 - El servicio lee el valor de esa variable en tiempo de arranque.
 - Si la variable no existe o esta vacia, el servicio no arranca.
 
 ### Host Docker
+
 - El host ya debe estar autenticado contra GHCR. El servicio no gestiona `docker login`.
 - El socket Docker del host se monta en el contenedor del servicio: `/var/run/docker.sock`.
+- El servicio `webhook` y el contenedor admin deben poder ver el root de stacks configurado.
 
 ---
 
@@ -155,42 +180,33 @@ header = "sha256=" + hex(signature)
 ```json
 { "status": "accepted", "job_id": "<uuid>" }
 ```
+
 HTTP `202 Accepted`.
 
 ---
 
-## Contrato de endpoints admin
+## Contrato de administracion local v2
 
-### Autenticacion
+### Principios
 
-- **Lectura**: `Authorization: Bearer <DEPLOY_ADMIN_READ_TOKEN>` o `Bearer <DEPLOY_ADMIN_WRITE_TOKEN>`.
-- **Escritura**: `Authorization: Bearer <DEPLOY_ADMIN_WRITE_TOKEN>`.
+- No se exponen endpoints HTTP remotos de escritura para operaciones admin.
+- La administracion local se ejecuta en un contenedor admin puntual, sin puertos publicados.
+- Los cambios de configuracion se aplican tras reiniciar el servicio.
 
-### POST /admin/deploy
+### Capacidades esperadas de la interfaz local
 
-```json
-{
-  "repository": "owner/repo",
-  "environment": "production",
-  "tag": "sha-abc1234",
-  "force": false
-}
-```
+- Alta y edicion de repositorios y entornos.
+- Generacion de secrets `Bearer` y `HMAC` por repo y almacenamiento local.
+- Visualizacion bajo demanda de esos secrets para copiarlos a GitHub Secrets.
+- Validacion local de config, rutas, `compose_file`, `runtime_env_file` y servicios.
+- Deploy manual, redeploy del ultimo exitoso y retry de jobs fallidos via CLI/TUI local.
+- Wizard de stack con catalogo de servicios soportados.
 
-### POST /admin/deploy/redeploy-last-successful
+### Contrato de los archivos del stack
 
-```json
-{
-  "repository": "owner/repo",
-  "environment": "production",
-  "force": false
-}
-```
-
-### POST /admin/jobs/:id/retry
-
-Sin body. Reencola el job fallido con el mismo `repo + environment + tag`.
-Con `force: true` en query o body se salta la deduplicacion por tag.
+- `docker-compose.yml`: definicion del stack local.
+- `.env`: configuracion y secretos propios del stack generados o mantenidos localmente.
+- `.deploy.env`: solo `IMAGE_NAME` e `IMAGE_TAG`, gestionados por el motor de despliegue.
 
 ---
 
@@ -253,6 +269,7 @@ Para un job en estado `running`, el worker ejecuta en orden:
 - Validar siempre `repository`, `environment`, `workflow`, `ref_name` y `tag` contra la config antes de crear el job.
 - No exponer informacion interna (rutas, configs, secretos) en respuestas HTTP de error.
 - No dejar puertos de debug o herramientas de administracion expuestos en produccion.
+- No mezclar permisos de escritura del contenedor admin con el contenedor `webhook` expuesto salvo necesidad explicita y documentada.
 
 ---
 
@@ -265,8 +282,8 @@ Una implementacion se considera completa cuando:
 - Encola trabajos en Redis y ejecuta un unico worker por servidor.
 - Ejecuta `pull`, `up -d`, checks opcionales y rollback limitado segun corresponda.
 - Guarda historial corto consultable en Redis y estado de rollback en disco.
-- Expone endpoints admin diferenciando lectura y escritura.
-- Los deploys manuales respetan las restricciones del target.
+- Expone solo webhook automatico y endpoints remotos de lectura.
+- La administracion local de escritura vive en CLI/TUI y respeta las restricciones del target.
 - Notifica exito y fallo cuando Telegram o Resend estan configurados.
 - Hay tests que cubren config, auth, cola, deduplicacion y motor de despliegue.
 - La documentacion queda actualizada si cambia el comportamiento.

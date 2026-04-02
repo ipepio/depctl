@@ -1,11 +1,6 @@
-import express, { Router } from 'express';
+import { Router } from 'express';
 
-import { requireAdminRead, requireAdminWrite } from '../auth/admin.auth';
-import {
-  adminDeployController,
-  adminRedeployLastSuccessfulController,
-  adminRetryJobController,
-} from './controllers/admin.controller';
+import { requireAdminRead } from '../auth/admin.auth';
 import { deployController } from './controllers/deploy.controller';
 import { healthController } from './controllers/health.controller';
 import { getJobController, getRecentDeploymentsController } from './controllers/jobs.controller';
@@ -14,7 +9,6 @@ import { parseRawDeployJsonMiddleware, rawDeployBodyMiddleware } from './middlew
 
 export function createRouter(): Router {
   const router = Router();
-  const jsonBodyParser = express.json({ limit: '1mb' });
 
   router.post(
     '/deploy',
@@ -31,27 +25,6 @@ export function createRouter(): Router {
     adminRateLimiter,
     requireAdminRead,
     getRecentDeploymentsController,
-  );
-  router.post(
-    '/admin/deploy',
-    adminRateLimiter,
-    requireAdminWrite,
-    jsonBodyParser,
-    adminDeployController,
-  );
-  router.post(
-    '/admin/deploy/redeploy-last-successful',
-    adminRateLimiter,
-    requireAdminWrite,
-    jsonBodyParser,
-    adminRedeployLastSuccessfulController,
-  );
-  router.post(
-    '/admin/jobs/:id/retry',
-    adminRateLimiter,
-    requireAdminWrite,
-    jsonBodyParser,
-    adminRetryJobController,
   );
 
   return router;

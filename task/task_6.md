@@ -1,5 +1,7 @@
 # Task 6 - Observabilidad y administracion
 
+Nota: esta task describe el modelo de administracion remota de la v1. En la v2, las operaciones admin de escritura salen de la API HTTP y se sustituyen por una interfaz local `CLI/TUI`; ver `task/task_9.md` y `task/task_10.md`.
+
 ## Objetivo
 
 Implementar todos los endpoints de consulta y administracion del servicio: estado de jobs, historial reciente, despliegues manuales, redeploy del ultimo exitoso y retry de jobs fallidos. Todos los endpoints admin estan protegidos con tokens diferenciados de lectura y escritura.
@@ -21,6 +23,7 @@ Implementar todos los endpoints de consulta y administracion del servicio: estad
 ### 6.1 Implementar autenticacion admin (`src/auth/admin.auth.ts`)
 
 **Middleware: `requireAdminRead`**
+
 ```typescript
 export function requireAdminRead(req: Request, res: Response, next: NextFunction): void {
   const token = extractBearerToken(req);
@@ -37,11 +40,13 @@ export function requireAdminRead(req: Request, res: Response, next: NextFunction
 
 **Middleware: `requireAdminWrite`**
 Igual pero solo acepta el write token:
+
 ```typescript
 const valid = crypto.timingSafeEqual(Buffer.from(token), Buffer.from(adminWriteToken));
 ```
 
 **Funcion auxiliar: `extractBearerToken(req): string`**
+
 - Leer `Authorization` header.
 - Si falta o no empieza por `Bearer `: lanzar error que el middleware convierte a `401`.
 
@@ -79,6 +84,7 @@ Auth: admin read
 ```
 
 Respuesta si existe:
+
 ```json
 {
   "id": "uuid",
@@ -118,6 +124,7 @@ Query params:
 ```
 
 Respuesta:
+
 ```json
 {
   "jobs": [
@@ -147,6 +154,7 @@ Auth: admin write
 ```
 
 **Body:**
+
 ```json
 {
   "repository": "owner/repo",
@@ -159,6 +167,7 @@ Auth: admin write
 **Validacion:**
 
 Usar Zod:
+
 ```typescript
 const AdminDeploySchema = z.object({
   repository: z.string().regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/),
@@ -169,17 +178,20 @@ const AdminDeploySchema = z.object({
 ```
 
 **Restricciones del target que SI se aplican:**
+
 - `repository` debe existir en la config.
 - `environment` debe existir en la config del repo.
 - `tag` debe cumplir `allowed_tag_pattern`.
 - El `runtime_env_file` y `compose_file` deben existir.
 
 **Restricciones que NO se aplican en admin:**
+
 - `allowed_workflows` (no hay workflow en deploy manual).
 - `allowed_branches` (no hay ref_name).
 - No se valida `run_id`.
 
 **Flujo:**
+
 - Construir `DeployJobPayload` con `triggeredBy: 'admin'`, `workflow: 'manual'`, `refName: 'manual'`, `runId: 0`.
 - Llamar a `enqueueDeployJob(payload)`.
 - Responder `202 Accepted` con `{ status, job_id }`.
@@ -192,6 +204,7 @@ Auth: admin write
 ```
 
 **Body:**
+
 ```json
 {
   "repository": "owner/repo",
@@ -201,6 +214,7 @@ Auth: admin write
 ```
 
 **Flujo:**
+
 1. Validar que `repository` y `environment` existen en config.
 2. Leer `readRollbackState(repository, environment)`.
 3. Si `successfulTag` es `null`: responder `404` con `{ error: 'no_successful_deployment_found' }`.
@@ -216,9 +230,11 @@ Auth: admin write
 ```
 
 **Query params:**
+
 - `force=true` (opcional, para saltar deduplicacion).
 
 **Flujo:**
+
 1. Leer job por ID via `getJob(id)`.
 2. Si no existe: `404 Not Found`.
 3. Si el job no esta en estado `failed`, `rolled_back` o `rollback_failed`: responder `409 Conflict` con `{ error: 'job_not_retryable', current_status: job.status }`.
@@ -238,7 +254,12 @@ router.get('/health', healthController);
 router.get('/jobs/:id', adminRateLimiter, requireAdminRead, getJobController);
 router.get('/deployments/recent', adminRateLimiter, requireAdminRead, getRecentController);
 router.post('/admin/deploy', adminRateLimiter, requireAdminWrite, adminDeployController);
-router.post('/admin/deploy/redeploy-last-successful', adminRateLimiter, requireAdminWrite, adminRedeployLastController);
+router.post(
+  '/admin/deploy/redeploy-last-successful',
+  adminRateLimiter,
+  requireAdminWrite,
+  adminRedeployLastController,
+);
 router.post('/admin/jobs/:id/retry', adminRateLimiter, requireAdminWrite, adminRetryController);
 ```
 

@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "nodemon --watch src --exec ts-node src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/index.js webhook",
+    "start:webhook": "node dist/index.js webhook",
+    "start:admin": "node dist/index.js admin",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\" \"docs/**/*.md\" \"task/**/*.md\"",

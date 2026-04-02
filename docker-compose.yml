@@ -2,6 +2,7 @@ services:
   webhook:
     build: .
     container_name: docker-deploy-webhook
+    command: ['node', 'dist/index.js', 'webhook']
     restart: unless-stopped
     ports:
       - '8080:8080'
@@ -11,6 +12,26 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./config:/app/config:ro
       - ./data:/app/data
+      - ${STACKS_ROOT:-/opt/stacks}:/opt/stacks
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  admin:
+    build: .
+    entrypoint: ['node', 'dist/index.js', 'admin']
+    command: ['help']
+    profiles: ['admin']
+    restart: 'no'
+    ports: []
+    env_file:
+      - .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./config:/app/config
+      - ./data:/app/data
+      - ${STACKS_ROOT:-/opt/stacks}:/opt/stacks
+      - ./.env:/app/.env
     depends_on:
       redis:
         condition: service_healthy

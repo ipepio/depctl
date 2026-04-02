@@ -1,66 +1,14 @@
-import { type Server } from 'http';
-
-import { initConfig } from './config';
+import { runAdminCommand } from './cli/bootstrap';
 import { logger } from './logger';
-import { createApp } from './api/server';
-import { closeDeployQueue, getDeployQueue } from './queue/queue';
-import { closeRedis, pingRedis } from './queue/redis';
-import { recoverInterruptedJobs } from './queue/recovery';
-import { closeWorker, startWorker } from './queue/worker';
-
-async function shutdown(server: Server | null): Promise<void> {
-  logger.info('Shutting down docker-deploy-webhook');
-
-  if (server) {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      });
-    });
-  }
-
-  await closeWorker();
-  await closeDeployQueue();
-  await closeRedis();
-}
+import { runWebhookMode } from './webhook/bootstrap';
 
 async function bootstrap(): Promise<void> {
-  await initConfig();
-  await pingRedis();
-  await getDeployQueue().waitUntilReady();
-  await recoverInterruptedJobs();
-  startWorker();
+  const [, , mode = 'webhook', ...args] = process.argv;
+  if (mode === 'admin') {
+    process.exit(await runAdminCommand(args));
+  }
 
-  const app = createApp();
-  const port = app.locals.config.server.port;
-
-  const server = app.listen(port, () => {
-    logger.info(`Server listening on port ${port}`);
-  });
-
-  const handleSignal = async (signal: string): Promise<void> => {
-    logger.info(`Received ${signal}, shutting down`);
-    try {
-      await shutdown(server);
-      process.exit(0);
-    } catch (error) {
-      logger.error('Shutdown failed', {
-        error: String(error),
-      });
-      process.exit(1);
-    }
-  };
-
-  process.once('SIGINT', () => {
-    void handleSignal('SIGINT');
-  });
-  process.once('SIGTERM', () => {
-    void handleSignal('SIGTERM');
-  });
+  await runWebhookMode();
 }
 
 void bootstrap().catch((error) => {

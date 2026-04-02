@@ -1,5 +1,7 @@
 # Arquitectura
 
+Nota: este documento describe la arquitectura y la superficie HTTP actuales de la v1. La arquitectura objetivo de la v2, con `CLI/TUI` local y sin escrituras admin remotas, se documenta en `docs/arquitectura-v2.md`.
+
 ## Resumen
 
 `docker-deploy-webhook` es un servicio HTTP pequeno, desplegado una vez por servidor, que recibe eventos de GitHub Actions y ejecuta despliegues Docker Compose locales de forma controlada.
