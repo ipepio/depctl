@@ -86,7 +86,7 @@ In your workflow, route to the correct environment based on the Git ref:
     # ... send payload with "environment": "staging"
 ```
 
-Use `deployctl workflow generate` to generate this automatically.
+Use `depctl workflow generate` to generate this automatically.
 
 ## Validate before restarting
 

@@ -52,7 +52,7 @@ Antes de reescribir o renombrar crea backups `*.bak`.
 3. Aplicar lo seguro con `migrate apply`.
 4. Migrar manualmente stacks fuera de `/opt/stacks/<owner>/<repo>`.
 5. Regenerar o ajustar secrets si los nombres no son canonicos.
-6. Rehacer runbooks internos para sustituir cURLs admin por comandos `deployctl`.
+6. Rehacer runbooks internos para sustituir cURLs admin por comandos `depctl`.
 7. Ejecutar `validate`.
 8. Reiniciar `webhook`.
 

@@ -48,7 +48,7 @@ import {
 
 function renderHelp(): string {
   return [
-    'deployctl usage:',
+    'depctl usage:',
     '  deployctl init                      Configure this instance (public URL, port, stacks dir)',
     '  deployctl status                    Show health of all components',
     '  deployctl logs <owner/repo> [--job <id>] [--env <env>] [--json]',

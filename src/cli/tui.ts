@@ -27,7 +27,7 @@ async function promptMenuChoice(): Promise<string> {
   process.stdout.write(
     [
       '',
-      'deployctl tui',
+      'depctl tui',
       '1. Repo list',
       '2. Repo add (wizard)',
       '3. Repo remove',

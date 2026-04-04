@@ -57,26 +57,26 @@ docker compose --profile admin run --rm admin help
 Comandos disponibles hoy:
 
 ```text
-deployctl repo add
-deployctl repo edit
-deployctl repo list
-deployctl repo show
-deployctl repo secrets generate
-deployctl repo secrets show
-deployctl env add
-deployctl env edit
-deployctl validate
-deployctl deploy manual
-deployctl deploy redeploy-last-successful
-deployctl deploy retry
-deployctl stack init
-deployctl stack show
-deployctl stack service add
-deployctl stack service edit
-deployctl migrate scan
-deployctl migrate plan
-deployctl migrate apply
-deployctl tui
+depctl repo add
+depctl repo edit
+depctl repo list
+depctl repo show
+depctl repo secrets generate
+depctl repo secrets show
+depctl env add
+depctl env edit
+depctl validate
+depctl deploy manual
+depctl deploy redeploy-last-successful
+depctl deploy retry
+depctl stack init
+depctl stack show
+depctl stack service add
+depctl stack service edit
+depctl migrate scan
+depctl migrate plan
+depctl migrate apply
+depctl tui
 ```
 
 ## Layout Operativo

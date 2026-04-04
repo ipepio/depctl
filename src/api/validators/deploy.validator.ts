@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { type RepoConfig } from '../../config/schema';
 import { HttpError } from '../../errors/http-error';
+import { ERRORS } from '../../errors/actionable-errors';
 
 export const DeployPayloadSchema = z.object({
   repository: z.string().regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/),
@@ -32,22 +33,30 @@ export function validateDeployAgainstConfig(
 ): void {
   const environmentConfig = repoConfig.environments[payload.environment];
   if (!environmentConfig) {
-    throw new HttpError(403, 'forbidden', 'Environment is not allowed');
+    const err = ERRORS.ENVIRONMENT_NOT_ALLOWED(payload.environment);
+    throw new HttpError(403, err.code, err.message);
   }
 
   if (!environmentConfig.allowedWorkflows.includes(payload.workflow)) {
-    throw new HttpError(403, 'forbidden', 'Workflow is not allowed');
+    const err = ERRORS.WORKFLOW_NOT_ALLOWED(payload.workflow, environmentConfig.allowedWorkflows);
+    throw new HttpError(403, err.code, err.message);
   }
 
   const tagPattern = new RegExp(environmentConfig.allowedTagPattern);
   const refMatchesTagPattern = tagPattern.test(payload.ref_name);
 
   if (!refMatchesTagPattern && !environmentConfig.allowedBranches.includes(payload.ref_name)) {
-    throw new HttpError(403, 'forbidden', 'Branch is not allowed');
+    const err = ERRORS.BRANCH_NOT_ALLOWED(
+      payload.ref_name,
+      environmentConfig.allowedBranches,
+      environmentConfig.allowedTagPattern,
+    );
+    throw new HttpError(403, err.code, err.message);
   }
 
   if (!tagPattern.test(payload.tag)) {
-    throw new HttpError(403, 'forbidden', 'Tag is not allowed');
+    const err = ERRORS.TAG_NOT_ALLOWED(payload.tag, environmentConfig.allowedTagPattern);
+    throw new HttpError(403, err.code, err.message);
   }
 }
 
@@ -57,11 +66,13 @@ export function validateManualDeployAgainstConfig(
 ): void {
   const environmentConfig = repoConfig.environments[payload.environment];
   if (!environmentConfig) {
-    throw new HttpError(403, 'forbidden', 'Environment is not allowed');
+    const err = ERRORS.ENVIRONMENT_NOT_ALLOWED(payload.environment);
+    throw new HttpError(403, err.code, err.message);
   }
 
   const tagPattern = new RegExp(environmentConfig.allowedTagPattern);
   if (!tagPattern.test(payload.tag)) {
-    throw new HttpError(403, 'forbidden', 'Tag is not allowed');
+    const err = ERRORS.TAG_NOT_ALLOWED(payload.tag, environmentConfig.allowedTagPattern);
+    throw new HttpError(403, err.code, err.message);
   }
 }

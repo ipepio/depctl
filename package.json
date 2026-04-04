@@ -1,5 +1,5 @@
 {
-  "name": "docker-deploy-webhook",
+  "name": "depctl",
   "version": "0.1.0",
   "private": true,
   "description": "Per-server webhook service for Docker Compose deployments",
