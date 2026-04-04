@@ -1,136 +1,129 @@
-# Runbook Operativo v2
+# Runbook
 
-## Arranque Del Servicio
-
-```bash
-docker compose up -d webhook redis
-```
-
-## Logs Del Webhook
+## Service management
 
 ```bash
+# Start
+cd /opt/depctl && docker compose up -d webhook redis
+
+# Restart webhook (after config changes)
+docker compose restart webhook
+
+# Logs
 docker compose logs -f webhook
 ```
 
-## Ejecutar El Canal Admin Local
-
-Mostrar ayuda:
+## Health check
 
 ```bash
-docker compose --profile admin run --rm admin help
+# Quick status
+depctl status
+
+# Remote health
+curl https://deploy.yourserver.com/health
 ```
 
-Abrir TUI:
+## Add a repo
 
 ```bash
-docker compose --profile admin run --rm admin tui
+depctl repo add
+```
+See `docs/how-to-add-repo.md` for full walkthrough.
+
+## View repo config
+
+```bash
+depctl repo show acme/payments-api
 ```
 
-## Estado Remoto Del Servicio
+Shows environment matrix: branches, tags, workflows, stack path.
+
+## Secrets
 
 ```bash
-curl https://deploy.mi-dominio.com/health
+# Show current secrets (GitHub Secrets format)
+depctl repo secrets show --repository acme/payments-api
+
+# Rotate (invalidates old secrets)
+depctl repo secrets rotate --repository acme/payments-api
+# → Update GitHub Secrets, then: docker compose restart webhook
 ```
 
-## Ver Despliegues Recientes
+## Deploy history and logs
 
 ```bash
-curl https://deploy.mi-dominio.com/deployments/recent \
+# Last 10 deploys
+depctl history acme/payments-api
+
+# Logs from latest deploy
+depctl logs acme/payments-api
+
+# Logs from specific job
+depctl logs acme/payments-api --job <job-id>
+
+# Remote history (read token required)
+curl https://deploy.yourserver.com/deployments/recent \
   -H "Authorization: Bearer <admin_read_token>"
 ```
 
-## Ver Un Job Concreto
+## Manual deploy
 
 ```bash
-curl https://deploy.mi-dominio.com/jobs/<job_id> \
-  -H "Authorization: Bearer <admin_read_token>"
+depctl deploy manual --repository acme/payments-api --environment production --tag v1.2.3
 ```
 
-## Alta De Repo Nueva
+## Rollback
 
 ```bash
-docker compose --profile admin run --rm admin repo add --repository acme/payments-api
-docker compose --profile admin run --rm admin repo secrets generate --repository acme/payments-api
-docker compose --profile admin run --rm admin stack init --repository acme/payments-api --environment production --services app,postgres
-docker compose --profile admin run --rm admin validate
-docker compose restart webhook
+depctl rollback acme/payments-api
+# Shows target tag and asks for confirmation
 ```
 
-## Mostrar Secrets Del Repo
+## Retry failed job
 
 ```bash
-docker compose --profile admin run --rm admin repo secrets show --repository acme/payments-api
+depctl deploy retry --job-id <job-id>
 ```
 
-## Validar Configuracion Antes De Reiniciar
+## Edit environment config
 
 ```bash
-docker compose --profile admin run --rm admin validate
+depctl env edit --repository acme/payments-api --environment production \
+  --allowed-branches master,main
 ```
 
-## Deploy Manual Local
-
-```bash
-docker compose --profile admin run --rm admin deploy manual \
-  --repository acme/payments-api \
-  --environment production \
-  --tag sha-abc1234
-```
-
-## Redeploy Del Ultimo Exitoso
-
-```bash
-docker compose --profile admin run --rm admin deploy redeploy-last-successful \
-  --repository acme/payments-api \
-  --environment production
-```
-
-## Retry De Job Fallido
-
-```bash
-docker compose --profile admin run --rm admin deploy retry --job-id <job_id>
-```
-
-## Listar Repos Configurados
-
-```bash
-docker compose --profile admin run --rm admin repo list
-```
-
-## Ver Config De Un Repo
-
-```bash
-docker compose --profile admin run --rm admin repo show --repository acme/payments-api
-```
-
-## Editar Un Entorno
-
-Ejemplo cambiando servicios desplegables:
-
-```bash
-docker compose --profile admin run --rm admin env edit \
-  --repository acme/payments-api \
-  --environment production \
-  --services app,worker
-```
-
-## Anadir Servicio Al Stack Gestionado
+## Add service to stack
 
 ```bash
 docker compose --profile admin run --rm admin stack service add \
   --repository acme/payments-api \
   --environment production \
-  --kind postgres \
-  --service-name postgres
+  --kind redis
 ```
 
-## Ver Metadata Del Stack
+## Validate config before restart
 
 ```bash
-docker compose --profile admin run --rm admin stack show --repository acme/payments-api
+depctl validate
+docker compose restart webhook
 ```
 
-## Migracion Desde v1
+## Generate workflow
+
+```bash
+depctl workflow generate --repository acme/payments-api
+# or write directly to the repo:
+depctl workflow generate --repository acme/payments-api --write
+```
+
+## Remove a repo
+
+```bash
+depctl repo remove --repository acme/payments-api
+# Type repo name to confirm. Add --remove-stack to also delete /opt/stacks/
+```
+
+## Migrate from v1
 
 ```bash
 docker compose --profile admin run --rm admin migrate scan
@@ -138,34 +131,11 @@ docker compose --profile admin run --rm admin migrate plan
 docker compose --profile admin run --rm admin migrate apply
 ```
 
-## Rotacion De Secrets
+## Common issues
 
-```bash
-docker compose --profile admin run --rm admin repo secrets generate --repository acme/payments-api
-docker compose --profile admin run --rm admin repo secrets show --repository acme/payments-api
-docker compose restart webhook
-```
-
-Despues actualiza tambien los GitHub Secrets del repositorio.
-
-## Diagnostico Rapido
-
-Fallos comunes:
-
-- falta una env var obligatoria en el `.env` del servicio
-- `compose_file` no existe
-- `runtime_env_file` apunta a un directorio inexistente
-- el servicio declarado en config no existe en el compose
-- el host no puede hacer `pull` desde `GHCR`
-- Redis no esta disponible
-
-## Reinicio Tras Cambios De Configuracion
-
-El sistema sigue siendo `reload by restart`.
-
-Flujo correcto:
-
-```bash
-docker compose --profile admin run --rm admin validate
-docker compose restart webhook
-```
+See `docs/troubleshooting.md` for:
+- GHCR 401/403
+- Branch vs tag in ref_name
+- Docker compose plugin missing
+- DB schema not initialized
+- Secrets not working after rotation

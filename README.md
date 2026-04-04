@@ -1,247 +1,189 @@
-# docker-deploy-webhook
+# depctl
 
-Servicio de despliegue automatizado por servidor para stacks Docker Compose locales.
+Self-hosted deploy webhook server + CLI for Docker Compose stacks.
 
-Recibe webhooks de GitHub Actions, valida la peticion y despliega una nueva imagen sobre stacks definidos localmente. La administracion sensible ya no se hace por HTTP remoto: vive en una interfaz local `CLI/TUI` ejecutada desde un contenedor admin puntual.
+Receives webhooks from GitHub Actions, validates them and deploys new images
+to locally-managed stacks. All sensitive administration is done locally via
+a CLI/TUI — nothing sensitive is exposed over HTTP.
 
-## Que Hace Ahora
-
-- expone `POST /deploy` para despliegues automaticos
-- expone endpoints remotos de lectura para health e historial de jobs
-- valida `Bearer + HMAC + anti-replay`
-- encola despliegues en Redis con un unico worker por servidor
-- ejecuta `docker compose pull` y `docker compose up -d`
-- mantiene rollback limitado con `successful_tag` y `previous_tag`
-- ofrece una `CLI` local para:
-  - crear repos y entornos
-  - generar y mostrar secrets del repo
-  - validar configuracion antes del restart
-  - lanzar deploy manual, redeploy y retry
-  - crear y editar stacks locales gestionados
-  - ejecutar una `TUI` local
-  - escanear y planificar migracion desde la v1
-
-## Modelo v2
-
-La v2 separa dos canales:
-
-- **remoto**: webhook y lectura
-- **local**: administracion por `CLI/TUI`
-
-La misma imagen soporta dos modos:
-
-- `webhook`: servicio HTTP expuesto
-- `admin`: contenedor puntual sin puertos para operaciones locales
-
-## API Remota
-
-Estos son los endpoints remotos actuales:
-
-| Metodo | Ruta                  | Auth          | Descripcion                |
-| ------ | --------------------- | ------------- | -------------------------- |
-| `POST` | `/deploy`             | Bearer + HMAC | Webhook automatico         |
-| `GET`  | `/health`             | Ninguna       | Estado basico del servicio |
-| `GET`  | `/jobs/:id`           | Admin read    | Estado de un job           |
-| `GET`  | `/deployments/recent` | Admin read    | Historial reciente         |
-
-Las antiguas rutas de escritura admin por HTTP ya no se exponen.
-
-## Admin Local
-
-El canal admin local se ejecuta con:
+## Install
 
 ```bash
-docker compose --profile admin run --rm admin help
+curl -sSL https://raw.githubusercontent.com/ipepio/docker-deploy-webhook/main/install.sh | bash
 ```
 
-Comandos disponibles hoy:
+The script installs prerequisites, creates `/opt/depctl` and `/opt/stacks`,
+starts the service and shows you the admin tokens.
 
-```text
+## Quick start
+
+```bash
+# 1. Configure instance (public URL, port, stacks dir)
+depctl init
+
+# 2. Add a repo (interactive wizard: image, secrets, stack, GHCR auth)
 depctl repo add
-depctl repo edit
-depctl repo list
-depctl repo show
-depctl repo secrets generate
-depctl repo secrets show
-depctl env add
-depctl env edit
+
+# 3. Generate the GitHub Actions workflow
+depctl workflow generate
+
+# 4. Validate config and restart
 depctl validate
-depctl deploy manual
+docker compose restart webhook
+```
+
+## Commands
+
+```
+depctl init                       Configure instance (URL, port, stacks dir)
+depctl status                     Health check of all components
+
+depctl repo add                   Interactive wizard: image, secrets, stack, GHCR auth
+depctl repo remove                Remove repo with confirmation
+depctl repo list                  List configured repos
+depctl repo show  <owner/repo>    Environment matrix (branches, tags, workflows, stack)
+depctl repo edit  --repository    Edit repo config
+
+depctl repo secrets generate      Generate Bearer + HMAC tokens (non-destructive)
+depctl repo secrets show          Show tokens formatted for GitHub Secrets
+depctl repo secrets rotate        Regenerate tokens with confirmation
+
+depctl env add   --repository --environment
+depctl env edit  --repository --environment
+
+depctl logs    <owner/repo>       Logs of last deploy (--job <id> for specific job)
+depctl history <owner/repo>       Table of last N deploys (--limit, --env, --json)
+depctl rollback <owner/repo>      Roll back to last successful tag (with confirmation)
+
+depctl deploy manual              Trigger deploy manually
 depctl deploy redeploy-last-successful
-depctl deploy retry
-depctl stack init
-depctl stack show
-depctl stack service add
+depctl deploy retry --job-id
+
+depctl stack init                 Generate docker-compose.yml for a repo
+depctl stack show                 Show stack metadata
+depctl stack service add          Add a service (postgres, redis, nginx...)
 depctl stack service edit
-depctl migrate scan
+
+depctl workflow generate          Interactive wizard → .github/workflows/release.yml
+                                  (--write to save directly, --output <path>)
+
+depctl validate                   Validate all config before restarting webhook
+
+depctl migrate scan               Scan for v1 config to migrate
 depctl migrate plan
 depctl migrate apply
-depctl tui
+
+depctl tui                        Interactive terminal UI
 ```
 
-## Layout Operativo
+## How it works
 
-### Config del servicio
-
-- `config/server.yml`
-- `config/repos/*.yml`
-- `.env`
-
-### Stacks gestionados
-
-Por defecto viven bajo:
-
-```text
-/opt/stacks/<owner>/<repo>/
+```
+GitHub Actions
+    │
+    │  POST /deploy
+    │  Authorization: Bearer <token>
+    │  X-Deploy-Timestamp + X-Deploy-Signature (HMAC-SHA256)
+    ▼
+webhook container
+    │  validates auth + payload against config/repos/*.yml
+    │  enqueues job in Redis
+    ▼
+worker
+    │  docker compose pull
+    │  docker compose up -d
+    │  optional healthcheck
+    │  saves rollback state
+    ▼
+stack running in /opt/stacks/<owner>/<repo>/
 ```
 
-En desarrollo o test se puede sobreescribir con `STACKS_ROOT`. En produccion el contrato esperado sigue siendo `/opt/stacks`.
+Two surfaces:
 
-Archivos por stack:
+| Surface | Who uses it | What it does |
+|---------|-------------|--------------|
+| Remote (`POST /deploy`, `GET /health`, `GET /deployments/recent`) | GitHub Actions, monitoring | Trigger and observe deploys |
+| Local (`depctl` CLI / TUI) | Operator on the server | Configure repos, secrets, stacks |
 
-- `docker-compose.yml`
-- `.env`
-- `.deploy.env`
+## Repo config
 
-## Instalacion Rapida
+Each repo lives in `config/repos/<owner>--<repo>.yml`:
 
-1. Crear `.env` a partir de `.env.example`.
-2. Copiar `config/server.example.yml` a `config/server.yml`.
-3. Asegurar acceso de lectura a `GHCR` en el host.
-4. Montar el root de stacks del host en `/opt/stacks`.
-5. Levantar servicio y Redis:
+```yaml
+repository: acme/payments-api
+webhook:
+  bearer_token_env: ACME_PAYMENTS_API_WEBHOOK_BEARER
+  hmac_secret_env:  ACME_PAYMENTS_API_WEBHOOK_HMAC
+environments:
+  production:
+    image_name:        ghcr.io/acme/payments-api
+    compose_file:      /opt/stacks/acme/payments-api/docker-compose.yml
+    runtime_env_file:  /opt/stacks/acme/payments-api/.deploy.env
+    services:          [app, worker]
+    allowed_workflows: [Release]
+    allowed_branches:  [master]
+    allowed_tag_pattern: '^v[0-9]+\.[0-9]+\.[0-9]+$'
+    healthcheck:
+      enabled: false
+```
+
+See `docs/multi-environment.md` for production + staging setups.
+
+## GitHub Secrets
+
+After `depctl repo add` (or `depctl repo secrets show`):
+
+| Secret | Value |
+|--------|-------|
+| `DEPLOY_WEBHOOK_URL` | `https://deploy.yourserver.com` |
+| `DEPLOY_WEBHOOK_BEARER` | shown by `secrets show` |
+| `DEPLOY_WEBHOOK_HMAC` | shown by `secrets show` |
+
+Generate the workflow with `depctl workflow generate`.
+
+## Remote API
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `POST` | `/deploy` | Bearer + HMAC | Automatic webhook |
+| `GET` | `/health` | None | Service health |
+| `GET` | `/jobs/:id` | Admin read | Job status |
+| `GET` | `/deployments/recent` | Admin read | Recent history |
+
+## Directory layout
+
+```
+/opt/depctl/
+  config/
+    server.yml          # server config
+    repos/
+      acme--app.yml     # one file per repo
+  data/                 # job history + rollback state
+  .env                  # tokens and secrets
+
+/opt/stacks/
+  <owner>/<repo>/
+    docker-compose.yml
+    .env                # app secrets and config
+    .deploy.env         # IMAGE_NAME + IMAGE_TAG (written per deploy)
+```
+
+## Development
 
 ```bash
-docker compose up -d webhook redis
+npm run build           # TypeScript compile
+npm test                # Run tests (32 tests, 11 suites)
+npm run lint            # ESLint
+npm start               # Webhook mode
+npm run start:admin -- help   # Admin CLI
 ```
 
-6. Crear un repo nuevo desde el canal admin local.
+## Documentation
 
-## Arranque
-
-### Arrancar el modo `webhook`
-
-```bash
-docker compose up -d webhook redis
-```
-
-### Comprobar que ha arrancado
-
-```bash
-curl http://localhost:8080/health
-```
-
-### Abrir el canal admin local
-
-```bash
-docker compose --profile admin run --rm admin help
-```
-
-## Como Se Interactua
-
-El sistema se usa por dos vias distintas.
-
-### 1. Interaccion remota
-
-Para automatizacion y observabilidad:
-
-- GitHub Actions envia `POST /deploy`
-- los operadores pueden consultar:
-  - `GET /health`
-  - `GET /jobs/:id`
-  - `GET /deployments/recent`
-
-### 2. Interaccion local
-
-Para administracion del servidor:
-
-```bash
-docker compose --profile admin run --rm admin <comando>
-```
-
-Ejemplos habituales:
-
-```bash
-docker compose --profile admin run --rm admin repo list
-docker compose --profile admin run --rm admin repo show --repository acme/payments-api
-docker compose --profile admin run --rm admin deploy manual --repository acme/payments-api --environment production --tag sha-abc1234
-docker compose --profile admin run --rm admin stack show --repository acme/payments-api
-docker compose --profile admin run --rm admin tui
-```
-
-## Alta De Un Repo Nuevo
-
-Flujo recomendado:
-
-```bash
-docker compose --profile admin run --rm admin repo add --repository acme/payments-api
-docker compose --profile admin run --rm admin repo secrets generate --repository acme/payments-api
-docker compose --profile admin run --rm admin stack init --repository acme/payments-api --environment production --services app,postgres
-docker compose --profile admin run --rm admin validate
-docker compose restart webhook
-docker compose --profile admin run --rm admin repo secrets show --repository acme/payments-api
-```
-
-Despues de `repo secrets show`, copia los dos valores a GitHub Secrets como:
-
-- `DEPLOY_BEARER_TOKEN`
-- `DEPLOY_HMAC_SECRET`
-
-La URL del webhook se publica como:
-
-- `DEPLOY_WEBHOOK_URL`
-
-## TUI
-
-Tambien existe una interfaz local guiada:
-
-```bash
-docker compose --profile admin run --rm admin tui
-```
-
-Es local al servidor, no expone puertos y reutiliza la misma logica de negocio que la CLI.
-
-## Validacion Y Apply
-
-Los cambios de configuracion siguen aplicandose tras reiniciar `webhook`.
-
-Flujo recomendado antes de reiniciar:
-
-```bash
-docker compose --profile admin run --rm admin validate
-docker compose restart webhook
-```
-
-## Documentacion
-
-- `docs/arquitectura-v2.md`: arquitectura objetivo y contratos principales
-- `docs/how-it-works-v2.md`: explicacion detallada de como funciona el sistema
-- `docs/how-to-add-repo.md`: guia paso a paso para dar de alta un repo nuevo
-- `docs/runbook.md`: operacion diaria de la v2
-- `docs/migration-v1-to-v2.md`: migracion desde instalaciones v1
-
-## Desarrollo
-
-Build:
-
-```bash
-npm run build
-```
-
-Tests:
-
-```bash
-npm test
-```
-
-Modo webhook local:
-
-```bash
-npm start
-```
-
-Modo admin local:
-
-```bash
-npm run start:admin -- help
-```
+- `docs/how-it-works-v2.md` — detailed internals
+- `docs/how-to-add-repo.md` — step-by-step repo setup
+- `docs/multi-environment.md` — production + staging configuration
+- `docs/troubleshooting.md` — GHCR auth, branch vs tag, common errors
+- `docs/release-checklist.md` — release process
+- `docs/runbook.md` — day-to-day operations
+- `docs/arquitectura-v2.md` — architecture contracts

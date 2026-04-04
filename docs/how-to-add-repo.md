@@ -1,108 +1,98 @@
-# Como Dar De Alta Un Repositorio Nuevo
+# How to add a new repository
 
-Esta es la guia operativa recomendada en la v2.
+The recommended flow uses the interactive wizard. No manual YAML editing required.
 
-Todo el alta se hace desde el contenedor `admin`, no editando YAML a mano y no usando endpoints HTTP de escritura.
-
-## 1. Levantar La Base Del Servicio
+## 1. Start the service (if not already running)
 
 ```bash
-docker compose up -d webhook redis
+cd /opt/depctl && docker compose up -d webhook redis
 ```
 
-## 2. Crear La Config Basica Del Repo
-
+Or if installing fresh:
 ```bash
-docker compose --profile admin run --rm admin repo add --repository acme/payments-api
+curl -sSL https://raw.githubusercontent.com/ipepio/docker-deploy-webhook/main/install.sh | bash
 ```
 
-Que hace:
-
-- crea `config/repos/acme--payments-api.yml`
-- propone defaults funcionales para `production`
-- genera paths canonicos bajo `/opt/stacks/acme/payments-api`
-
-## 3. Generar Los Secrets Del Repo
+## 2. Run the wizard
 
 ```bash
-docker compose --profile admin run --rm admin repo secrets generate --repository acme/payments-api
+depctl repo add
 ```
 
-Que hace:
+The wizard will:
+1. Ask for the repository (`owner/repo`)
+2. Infer the Docker image (`ghcr.io/<owner>/<repo>` by default)
+3. Try to pull the image — if it's private, guide you through GHCR login
+4. Ask for environment name, allowed branches/tags/workflows
+5. Ask if you need Postgres, Redis or other services
+6. Generate `Bearer` and `HMAC` secrets automatically
+7. Create the stack at `/opt/stacks/<owner>/<repo>/`
+8. Show a GitHub Secrets checklist to copy
 
-- genera `Bearer` y `HMAC`
-- los guarda en el `.env` del servicio
-- no los imprime por defecto
+## 3. Add secrets to GitHub
 
-## 4. Crear El Stack Local
+The wizard shows exactly what to add:
 
-Ejemplo minimo con `app` y `postgres`:
+```
+Settings → Secrets and variables → Actions
 
-```bash
-docker compose --profile admin run --rm admin stack init \
-  --repository acme/payments-api \
-  --environment production \
-  --services app,postgres
+DEPLOY_WEBHOOK_URL    = https://deploy.yourserver.com
+DEPLOY_WEBHOOK_BEARER = <generated>
+DEPLOY_WEBHOOK_HMAC   = <generated>
 ```
 
-Que hace:
-
-- crea `/opt/stacks/acme/payments-api/`
-- genera `docker-compose.yml`
-- genera `.env`
-- crea `.deploy.env` inicial
-- sincroniza `compose_file`, `runtime_env_file` y `services` en la config del repo
-
-## 5. Validar Antes Del Restart
+## 4. Generate the GitHub Actions workflow
 
 ```bash
-docker compose --profile admin run --rm admin validate
+depctl workflow generate --repository acme/payments-api
 ```
 
-Si esto falla, corrige primero los problemas.
+Add `--write` to save directly to `.github/workflows/release.yml` in the current git repo.
 
-## 6. Reiniciar El Webhook
+## 5. Validate and restart
 
 ```bash
+depctl validate
 docker compose restart webhook
 ```
 
-## 7. Mostrar Los Secrets Para GitHub
+## 6. Verify
 
 ```bash
-docker compose --profile admin run --rm admin repo secrets show --repository acme/payments-api
+depctl status
+curl https://deploy.yourserver.com/health
 ```
 
-Usa esos valores para poblar en GitHub:
+---
 
-- `DEPLOY_BEARER_TOKEN`
-- `DEPLOY_HMAC_SECRET`
-- `DEPLOY_WEBHOOK_URL`
-
-## 8. Configurar GitHub Actions
-
-El workflow del repo debe enviar el webhook con:
-
-- `Authorization: Bearer <DEPLOY_BEARER_TOKEN>`
-- `X-Deploy-Timestamp`
-- `X-Deploy-Signature`
-- body con `repository`, `environment`, `tag`, `sha`, `workflow`, `ref_name`, `run_id`
-
-## 9. Verificar
-
-Puedes verificar por lectura remota:
+## Non-interactive (scripting/CI)
 
 ```bash
-curl https://deploy.mi-dominio.com/health
-curl https://deploy.mi-dominio.com/deployments/recent \
-  -H "Authorization: Bearer <admin_read_token>"
-```
-
-O lanzar una prueba local de deploy manual:
-
-```bash
-docker compose --profile admin run --rm admin deploy manual \
+depctl repo add \
   --repository acme/payments-api \
   --environment production \
-  --tag sha-abc1234
+  --image-name ghcr.io/acme/payments-api \
+  --allowed-branches master \
+  --allowed-tag-pattern '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+  --allowed-workflows Release \
+  --services app,worker \
+  --stack-services app,postgres \
+  --non-interactive
+```
+
+---
+
+## Manual flow (advanced)
+
+If you prefer to manage YAML directly:
+
+```bash
+# Admin container
+docker compose --profile admin run --rm admin repo add --repository acme/payments-api
+docker compose --profile admin run --rm admin repo secrets generate --repository acme/payments-api
+docker compose --profile admin run --rm admin stack init \
+  --repository acme/payments-api --environment production --services app,postgres
+docker compose --profile admin run --rm admin validate
+docker compose restart webhook
+docker compose --profile admin run --rm admin repo secrets show --repository acme/payments-api
 ```
