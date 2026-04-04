@@ -212,7 +212,7 @@ export async function runRepoAddWizard(options: RepoWizardOptions = {}): Promise
 // ─────────────────────────────────────────────
 
 export function printRepoAddChecklist(result: RepoWizardResult): void {
-  const webhookUrl = result.publicUrl ?? '(set via: deployctl init)';
+  const webhookUrl = result.publicUrl ?? '(set via: depctl init)';
   const divider = '━'.repeat(50);
 
   process.stdout.write(`
@@ -231,9 +231,9 @@ ${divider}
   Config: ${result.configFilePath}
 
   Next steps:
-    1. deployctl validate
+    1. depctl validate
     2. docker compose restart webhook
-    3. deployctl workflow generate --repository ${result.repository}
+    3. depctl workflow generate --repository ${result.repository}
 ${divider}
 `);
 }

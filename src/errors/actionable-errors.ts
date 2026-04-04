@@ -51,15 +51,15 @@ export const ERRORS = {
       `  Fix options:\n` +
       `    1. Add "${workflow}" to allowed_workflows in the repo config.\n` +
       `    2. Update your GitHub Actions workflow name to match one of the allowed values.\n` +
-      `    3. Regenerate the workflow with: deployctl workflow generate`,
+      `    3. Regenerate the workflow with: depctl workflow generate`,
   }),
 
   ENVIRONMENT_NOT_ALLOWED: (env: string): ActionableError => ({
     code: 'environment_not_allowed',
     message: `Environment "${env}" is not configured for this repository.`,
     hint:
-      `Run: deployctl env add --repository <owner/repo> --environment ${env}\n` +
-      `  Or check the existing environments with: deployctl repo show <owner/repo>`,
+      `Run: depctl env add --repository <owner/repo> --environment ${env}\n` +
+      `  Or check the existing environments with: depctl repo show <owner/repo>`,
   }),
 
   TAG_NOT_ALLOWED: (tag: string, pattern: string): ActionableError => ({
@@ -77,7 +77,7 @@ export const ERRORS = {
     code: 'compose_file_not_found',
     message: `Compose file does not exist: ${path}`,
     hint:
-      `Run: deployctl stack init --repository <owner/repo> --environment <env>\n` +
+      `Run: depctl stack init --repository <owner/repo> --environment <env>\n` +
       `  Or create the file manually at ${path}`,
   }),
 
@@ -95,7 +95,7 @@ export const ERRORS = {
     code: 'secrets_missing',
     message: `Webhook secrets not found for repository: ${repository}`,
     hint:
-      `Run: deployctl repo secrets generate --repository ${repository}\n` +
+      `Run: depctl repo secrets generate --repository ${repository}\n` +
       `  Then copy the output to GitHub Secrets:\n` +
       `  Settings → Secrets and variables → Actions`,
   }),
@@ -104,8 +104,8 @@ export const ERRORS = {
     code: 'repository_not_found',
     message: `Repository not configured: ${repository}`,
     hint:
-      `Run: deployctl repo add\n` +
-      `  Or list configured repos with: deployctl repo list`,
+      `Run: depctl repo add\n` +
+      `  Or list configured repos with: depctl repo list`,
   }),
 } as const;
 

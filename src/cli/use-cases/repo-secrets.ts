@@ -105,7 +105,7 @@ export function showRepoSecrets(repository: string): RevealedRepoSecrets {
 
   if (!bearerToken || !hmacSecret) {
     throw new ConfigError(
-      `Secrets not found for repository: ${repository}.\n  Run: deployctl repo secrets generate --repository ${repository}`,
+      `Secrets not found for repository: ${repository}.\n  Run: depctl repo secrets generate --repository ${repository}`,
     );
   }
 
@@ -151,7 +151,7 @@ export function rotateRepoSecrets(repository: string): RevealedRepoSecrets {
 // ─────────────────────────────────────────────
 
 export function formatSecretsChecklist(secrets: RevealedRepoSecrets): string {
-  const webhookUrl = secrets.publicUrl ?? '(set via: deployctl init)';
+  const webhookUrl = secrets.publicUrl ?? '(set via: depctl init)';
   const divider = '━'.repeat(50);
   return [
     '',
@@ -171,7 +171,7 @@ export function formatSecretsChecklist(secrets: RevealedRepoSecrets): string {
 }
 
 export function formatRotateChecklist(secrets: RevealedRepoSecrets): string {
-  const webhookUrl = secrets.publicUrl ?? '(set via: deployctl init)';
+  const webhookUrl = secrets.publicUrl ?? '(set via: depctl init)';
   const divider = '━'.repeat(50);
   return [
     '',
@@ -232,7 +232,7 @@ export function showMultiEnvSecrets(repository: string): MultiEnvSecretsResult {
 }
 
 export function formatMultiEnvSecrets(result: MultiEnvSecretsResult): string {
-  const webhookUrl = result.publicUrl ?? '(set via: deployctl init)';
+  const webhookUrl = result.publicUrl ?? '(set via: depctl init)';
   const divider = '━'.repeat(60);
   const lines: string[] = ['', divider, `  GitHub Secrets for ${result.repository}`, divider, ''];
   lines.push('  Settings → Secrets and variables → Actions');

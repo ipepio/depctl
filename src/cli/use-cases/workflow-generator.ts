@@ -50,7 +50,7 @@ function validateAgainstRepoConfig(
   const warnings: string[] = [];
   const repoFile = findRepoFile(repository);
   if (!repoFile) {
-    warnings.push(`Repository "${repository}" is not configured in this deployer. Register it first with: deployctl repo add`);
+    warnings.push(`Repository "${repository}" is not configured in this deployer. Register it first with: depctl repo add`);
     return warnings;
   }
 

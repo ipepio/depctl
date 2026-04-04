@@ -280,10 +280,30 @@ print_summary() {
   fi
 
   echo "  Next step:"
-  echo "    docker compose --profile admin run --rm admin repo add"
+  echo "    depctl repo add"
   echo ""
   echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
+}
+
+# ─────────────────────────────────────────────
+# Task F07 — Install depctl wrapper on host PATH
+# ─────────────────────────────────────────────
+install_depctl_wrapper() {
+  _section "Installing depctl on PATH"
+
+  local wrapper_path="/usr/local/bin/depctl"
+
+  cat > "$wrapper_path" <<WRAPPER
+#!/usr/bin/env bash
+# depctl — wrapper installed by install.sh
+# Routes to the admin container in the correct project directory
+exec docker compose --project-directory "${INSTALL_DIR}" --profile admin run --rm admin "\$@"
+WRAPPER
+
+  chmod +x "$wrapper_path"
+  _info "Installed: ${wrapper_path}"
+  _info "Run 'depctl help' to get started"
 }
 
 # ─────────────────────────────────────────────
@@ -300,6 +320,7 @@ main() {
   download_artifacts
   generate_admin_tokens
   start_services
+  install_depctl_wrapper
   print_summary
 }
 
