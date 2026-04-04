@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 
 import yaml from 'js-yaml';
 
@@ -15,6 +15,7 @@ import {
 import { generateRepoSecrets, showRepoSecrets } from './repo-secrets';
 import { initializeManagedStack, type StackServiceInput } from './stack';
 import { parseSupportedServiceKinds, resolveStackServiceInput } from '../stack/input';
+import { runImagePreflight } from './ghcr-auth';
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -140,6 +141,16 @@ export async function runRepoAddWizard(options: RepoWizardOptions = {}): Promise
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+
+  // ── Step 6b: GHCR preflight (Task 5.1 / 5.2 / 5.3) ─
+  const installDir = resolve(resolveConfigPaths().serverConfigPath, '..', '..');
+  process.stdout.write('\nChecking image access...\n');
+  await runImagePreflight({
+    imageName,
+    defaultUsername: repository.split('/')[0],
+    composeDir: installDir,
+    nonInteractive: options.nonInteractive,
+  });
 
   // ── Step 7: create repo config ──────────────
   const stackDirectory = getStackDirectory(repository);
