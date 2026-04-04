@@ -15,6 +15,11 @@ import {
   formatRollbackInfo,
 } from './use-cases/deploy-observability';
 import {
+  runWorkflowGeneratorWizard,
+  printWorkflowResult,
+  writeWorkflowToFile,
+} from './use-cases/workflow-generator';
+import {
   inferExistingService,
   parseSupportedServiceKinds,
   resolveStackServiceInput,
@@ -48,6 +53,7 @@ function renderHelp(): string {
     '  deployctl logs <owner/repo> [--job <id>] [--env <env>] [--json]',
     '  deployctl history <owner/repo> [--limit N] [--env <env>] [--json]',
     '  deployctl rollback <owner/repo> [--env <env>] [--force]',
+    '  deployctl workflow generate [--repository owner/repo] [--write] [--output <path>]',
     '  deployctl repo add [--repository owner/repo] [--non-interactive]',
     '  deployctl repo remove --repository owner/repo [--force] [--remove-stack]',
     '  deployctl repo edit --repository owner/repo [--refresh-env-names]',
@@ -566,6 +572,39 @@ export async function runAdminCommand(args: string[]): Promise<number> {
         } else {
           process.stdout.write(`\n  Rollback enqueued → tag: ${result.tag} (job: ${result.jobId})\n\n`);
         }
+        return 0;
+      }
+      case 'workflow': {
+        const [_, action] = parsed.positionals;
+        if (action !== 'generate') {
+          throw new CliUsageError('Usage: deployctl workflow generate [--repository owner/repo] [--write] [--output <path>]');
+        }
+
+        const result = await runWorkflowGeneratorWizard({
+          repository: getStringFlag(parsed, 'repository'),
+          workflowName: getStringFlag(parsed, 'workflowName') ?? getStringFlag(parsed, 'name'),
+          buildDocker: parsed.flags.buildDocker !== undefined
+            ? getBooleanFlag(parsed, 'buildDocker')
+            : undefined,
+          registry: getStringFlag(parsed, 'registry'),
+          nonInteractive: getBooleanFlag(parsed, 'nonInteractive'),
+        });
+
+        if (getBooleanFlag(parsed, 'json')) {
+          printJson(result);
+          return 0;
+        }
+
+        printWorkflowResult(result);
+
+        const writeFlag = getBooleanFlag(parsed, 'write');
+        const outputPath = getStringFlag(parsed, 'output');
+
+        if (writeFlag || outputPath) {
+          const filePath = writeWorkflowToFile(result, outputPath);
+          process.stdout.write(`  Written to: ${filePath}\n\n`);
+        }
+
         return 0;
       }
       case 'repo':
