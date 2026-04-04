@@ -19,6 +19,7 @@ import {
   printWorkflowResult,
   writeWorkflowToFile,
 } from './use-cases/workflow-generator';
+import { formatRepoShow } from './use-cases/repo-show';
 import {
   inferExistingService,
   parseSupportedServiceKinds,
@@ -36,7 +37,7 @@ import {
   showRepository,
 } from './use-cases/repo-config';
 import { manualDeploy, redeployLastSuccessful, retryJob } from './use-cases/deploy-actions';
-import { generateRepoSecrets, showRepoSecrets, rotateRepoSecrets, formatSecretsChecklist, formatRotateChecklist } from './use-cases/repo-secrets';
+import { generateRepoSecrets, showRepoSecrets, rotateRepoSecrets, formatSecretsChecklist, formatRotateChecklist, showMultiEnvSecrets, formatMultiEnvSecrets } from './use-cases/repo-secrets';
 import {
   addManagedStackService,
   editManagedStackService,
@@ -115,7 +116,13 @@ async function handleRepoCommand(parsed: ReturnType<typeof parseCommandArgs>): P
       getStringFlag(parsed, 'repository'),
       'Repository (owner/repo)',
     );
-    printJson(showRepository(repository));
+    const useJson = getBooleanFlag(parsed, 'json');
+    const repoYaml = showRepository(repository);
+    if (useJson) {
+      printJson(repoYaml);
+    } else {
+      process.stdout.write(formatRepoShow(repoYaml));
+    }
     return 0;
   }
 
@@ -199,7 +206,9 @@ async function handleRepoCommand(parsed: ReturnType<typeof parseCommandArgs>): P
     if (useJson) {
       printJson(secrets);
     } else {
-      process.stdout.write(formatSecretsChecklist(secrets));
+      // Task 8.3: use multi-env format (shows suffixes when multiple envs exist)
+      const multiEnv = showMultiEnvSecrets(repository);
+      process.stdout.write(formatMultiEnvSecrets(multiEnv));
     }
     return 0;
   }

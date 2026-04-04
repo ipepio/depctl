@@ -194,3 +194,58 @@ export function formatRotateChecklist(secrets: RevealedRepoSecrets): string {
     '',
   ].join('\n');
 }
+
+// ─────────────────────────────────────────────
+// Task 8.3 — Multi-environment secrets display
+// ─────────────────────────────────────────────
+
+export interface MultiEnvSecretsEntry {
+  environment: string;
+  secretSuffix: string;
+  bearerToken: string;
+  hmacSecret: string;
+}
+
+export interface MultiEnvSecretsResult {
+  repository: string;
+  publicUrl: string | null;
+  envEntries: MultiEnvSecretsEntry[];
+}
+
+/**
+ * Returns secrets for all environments with correct suffix for multi-env setups.
+ */
+export function showMultiEnvSecrets(repository: string): MultiEnvSecretsResult {
+  const repoYaml = readRepoFile(repository);
+  const envNames = Object.keys(repoYaml.environments);
+  const multiEnv = envNames.length > 1;
+  const secrets = showRepoSecrets(repository);
+
+  const envEntries: MultiEnvSecretsEntry[] = envNames.map((envName) => ({
+    environment: envName,
+    secretSuffix: multiEnv ? `_${envName.toUpperCase()}` : '',
+    bearerToken: secrets.bearerToken,
+    hmacSecret: secrets.hmacSecret,
+  }));
+
+  return { repository, publicUrl: getPublicUrl(), envEntries };
+}
+
+export function formatMultiEnvSecrets(result: MultiEnvSecretsResult): string {
+  const webhookUrl = result.publicUrl ?? '(set via: deployctl init)';
+  const divider = '━'.repeat(60);
+  const lines: string[] = ['', divider, `  GitHub Secrets for ${result.repository}`, divider, ''];
+  lines.push('  Settings → Secrets and variables → Actions');
+  lines.push('');
+
+  for (const entry of result.envEntries) {
+    if (result.envEntries.length > 1) lines.push(`  # ${entry.environment}`);
+    lines.push(`  DEPLOY_WEBHOOK_URL${entry.secretSuffix}    = ${webhookUrl}`);
+    lines.push(`  DEPLOY_WEBHOOK_BEARER${entry.secretSuffix} = ${entry.bearerToken}`);
+    lines.push(`  DEPLOY_WEBHOOK_HMAC${entry.secretSuffix}   = ${entry.hmacSecret}`);
+    if (result.envEntries.length > 1) lines.push('');
+  }
+
+  lines.push(divider, '');
+  return lines.join('\n');
+}
