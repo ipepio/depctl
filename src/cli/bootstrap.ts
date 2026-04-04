@@ -7,6 +7,14 @@ import { runInit } from './use-cases/instance-init';
 import { runStatus, formatStatus } from './use-cases/instance-status';
 import { runRepoAddWizard, printRepoAddChecklist } from './use-cases/repo-wizard';
 import {
+  getDeployLogs,
+  formatJobLogs,
+  getDeployHistory,
+  formatDeployHistory,
+  runRollback,
+  formatRollbackInfo,
+} from './use-cases/deploy-observability';
+import {
   inferExistingService,
   parseSupportedServiceKinds,
   resolveStackServiceInput,
@@ -37,6 +45,9 @@ function renderHelp(): string {
     'deployctl usage:',
     '  deployctl init                      Configure this instance (public URL, port, stacks dir)',
     '  deployctl status                    Show health of all components',
+    '  deployctl logs <owner/repo> [--job <id>] [--env <env>] [--json]',
+    '  deployctl history <owner/repo> [--limit N] [--env <env>] [--json]',
+    '  deployctl rollback <owner/repo> [--env <env>] [--force]',
     '  deployctl repo add [--repository owner/repo] [--non-interactive]',
     '  deployctl repo remove --repository owner/repo [--force] [--remove-stack]',
     '  deployctl repo edit --repository owner/repo [--refresh-env-names]',
@@ -478,6 +489,82 @@ export async function runAdminCommand(args: string[]): Promise<number> {
           printJson(status);
         } else {
           process.stdout.write(formatStatus(status));
+        }
+        return 0;
+      }
+      case 'logs': {
+        const repository = await resolveRequiredString(
+          parsed.positionals[1] ?? getStringFlag(parsed, 'repository'),
+          'Repository (owner/repo)',
+        );
+        const useJson = getBooleanFlag(parsed, 'json');
+        const job = await withLocalRuntime(
+          () => getDeployLogs({
+            repository,
+            environment: getStringFlag(parsed, 'env') ?? getStringFlag(parsed, 'environment'),
+            jobId: getStringFlag(parsed, 'job') ?? getStringFlag(parsed, 'jobId'),
+          }),
+          { requireQueue: true },
+        );
+        if (!job) {
+          process.stdout.write(`\n  No deploy found for ${repository}\n\n`);
+          return 0;
+        }
+        if (useJson) {
+          printJson(job);
+        } else {
+          process.stdout.write(formatJobLogs(job));
+        }
+        return 0;
+      }
+      case 'history': {
+        const repository = await resolveRequiredString(
+          parsed.positionals[1] ?? getStringFlag(parsed, 'repository'),
+          'Repository (owner/repo)',
+        );
+        const useJson = getBooleanFlag(parsed, 'json');
+        const jobs = await withLocalRuntime(
+          () => getDeployHistory({
+            repository,
+            environment: getStringFlag(parsed, 'env') ?? getStringFlag(parsed, 'environment'),
+            limit: getStringFlag(parsed, 'limit') ? Number(getStringFlag(parsed, 'limit')) : undefined,
+          }),
+          { requireQueue: true },
+        );
+        if (useJson) {
+          printJson(jobs);
+        } else {
+          process.stdout.write(formatDeployHistory(jobs, repository));
+        }
+        return 0;
+      }
+      case 'rollback': {
+        const repository = await resolveRequiredString(
+          parsed.positionals[1] ?? getStringFlag(parsed, 'repository'),
+          'Repository (owner/repo)',
+        );
+        const environment = getStringFlag(parsed, 'env') ?? getStringFlag(parsed, 'environment') ?? 'production';
+        const useJson = getBooleanFlag(parsed, 'json');
+
+        // Show what we're rolling back to before confirming
+        if (!getBooleanFlag(parsed, 'force')) {
+          process.stdout.write(formatRollbackInfo(repository, environment));
+          const { confirm } = await import('./io');
+          const ok = await confirm('Proceed with rollback?', false);
+          if (!ok) {
+            process.stdout.write('Aborted.\n');
+            return 0;
+          }
+        }
+
+        const result = await withLocalRuntime(
+          () => runRollback({ repository, environment, force: getBooleanFlag(parsed, 'force') }),
+          { requireQueue: true },
+        );
+        if (useJson) {
+          printJson(result);
+        } else {
+          process.stdout.write(`\n  Rollback enqueued → tag: ${result.tag} (job: ${result.jobId})\n\n`);
         }
         return 0;
       }
