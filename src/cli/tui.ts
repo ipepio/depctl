@@ -13,7 +13,7 @@ import {
   listRepositories,
   removeRepository,
 } from './use-cases/repo-config';
-import { generateRepoSecrets, showRepoSecrets } from './use-cases/repo-secrets';
+import { generateRepoSecrets, showRepoSecrets, rotateRepoSecrets, formatSecretsChecklist, formatRotateChecklist } from './use-cases/repo-secrets';
 import { validateRuntimeConfig } from '../config/runtime-validator';
 import { manualDeploy, redeployLastSuccessful, retryJob } from './use-cases/deploy-actions';
 import {
@@ -35,6 +35,7 @@ async function promptMenuChoice(): Promise<string> {
       '5. Env edit',
       '6. Repo secrets generate',
       '7. Repo secrets show',
+      '7a. Repo secrets rotate',
       '8. Validate',
       '9. Deploy manual',
       '10. Redeploy last successful',
@@ -117,9 +118,22 @@ export async function runTui(): Promise<number> {
         case '6':
           printJson(generateRepoSecrets(await promptRepository()));
           break;
-        case '7':
-          printJson(showRepoSecrets(await promptRepository()));
+        case '7': {
+          const secrets = showRepoSecrets(await promptRepository());
+          process.stdout.write(formatSecretsChecklist(secrets));
           break;
+        }
+        case '7a': {
+          const repository = await promptRepository();
+          const ok = await resolveRequiredString(undefined, `Type "yes" to rotate secrets for ${repository}`);
+          if (ok === 'yes') {
+            const secrets = rotateRepoSecrets(repository);
+            process.stdout.write(formatRotateChecklist(secrets));
+          } else {
+            process.stderr.write('Aborted.\n');
+          }
+          break;
+        }
         case '8':
           printJson(await validateRuntimeConfig());
           break;

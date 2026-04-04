@@ -23,7 +23,7 @@ import {
   showRepository,
 } from './use-cases/repo-config';
 import { manualDeploy, redeployLastSuccessful, retryJob } from './use-cases/deploy-actions';
-import { generateRepoSecrets, showRepoSecrets } from './use-cases/repo-secrets';
+import { generateRepoSecrets, showRepoSecrets, rotateRepoSecrets, formatSecretsChecklist, formatRotateChecklist } from './use-cases/repo-secrets';
 import {
   addManagedStackService,
   editManagedStackService,
@@ -44,7 +44,8 @@ function renderHelp(): string {
     '  deployctl repo list',
     '  deployctl repo show --repository owner/repo',
     '  deployctl repo secrets generate --repository owner/repo',
-    '  deployctl repo secrets show --repository owner/repo',
+    '  deployctl repo secrets show --repository owner/repo [--json]',
+    '  deployctl repo secrets rotate --repository owner/repo [--force] [--json]',
     '  deployctl env add --repository owner/repo --environment production',
     '  deployctl env edit --repository owner/repo --environment production [--services app,worker]',
     '  deployctl validate',
@@ -176,7 +177,40 @@ async function handleRepoCommand(parsed: ReturnType<typeof parseCommandArgs>): P
       getStringFlag(parsed, 'repository'),
       'Repository (owner/repo)',
     );
-    printJson(showRepoSecrets(repository));
+    const useJson = getBooleanFlag(parsed, 'json');
+    const secrets = showRepoSecrets(repository);
+    if (useJson) {
+      printJson(secrets);
+    } else {
+      process.stdout.write(formatSecretsChecklist(secrets));
+    }
+    return 0;
+  }
+
+  if (action === 'secrets' && nested === 'rotate') {
+    const repository = await resolveRequiredString(
+      getStringFlag(parsed, 'repository'),
+      'Repository (owner/repo)',
+    );
+    // Confirmation required unless --force
+    if (!getBooleanFlag(parsed, 'force')) {
+      const { confirm } = await import('./io');
+      const ok = await confirm(
+        `Rotate secrets for ${repository}? Old secrets will stop working`,
+        false,
+      );
+      if (!ok) {
+        process.stdout.write('Aborted.\n');
+        return 0;
+      }
+    }
+    const useJson = getBooleanFlag(parsed, 'json');
+    const secrets = rotateRepoSecrets(repository);
+    if (useJson) {
+      printJson(secrets);
+    } else {
+      process.stdout.write(formatRotateChecklist(secrets));
+    }
     return 0;
   }
 
