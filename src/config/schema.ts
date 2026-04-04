@@ -18,6 +18,7 @@ const NotificationEmailYamlSchema = z.object({
 export const ServerYamlSchema = z.object({
   server: z.object({
     id: nonEmptyString,
+    public_url: z.string().trim().optional(),
     port: z.number().int().min(1).max(65535).default(8080),
     history: z
       .object({
@@ -170,6 +171,7 @@ export interface ServerNotificationConfig {
 
 export interface ServerConfig {
   id: string;
+  publicUrl?: string;
   port: number;
   history: {
     maxJobs: number;

@@ -1,5 +1,6 @@
 server:
   id: prod-app-1
+  public_url: ''   # Set via: depctl init (e.g. https://deploy.midominio.com)
   port: 8080
   history:
     max_jobs: 250

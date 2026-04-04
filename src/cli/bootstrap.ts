@@ -3,6 +3,8 @@ import { validateRuntimeConfig } from '../config/runtime-validator';
 import { CliUsageError } from './errors';
 import { getBooleanFlag, getListFlag, getStringFlag, parseCommandArgs } from './argv';
 import { printJson, resolveList, resolveRequiredString } from './io';
+import { runInit } from './use-cases/instance-init';
+import { runStatus, formatStatus } from './use-cases/instance-status';
 import {
   inferExistingService,
   parseSupportedServiceKinds,
@@ -32,6 +34,8 @@ import {
 function renderHelp(): string {
   return [
     'deployctl usage:',
+    '  deployctl init                      Configure this instance (public URL, port, stacks dir)',
+    '  deployctl status                    Show health of all components',
     '  deployctl repo add --repository owner/repo [--environment production]',
     '  deployctl repo edit --repository owner/repo [--refresh-env-names]',
     '  deployctl repo list',
@@ -386,6 +390,26 @@ export async function runAdminCommand(args: string[]): Promise<number> {
 
   try {
     switch (parsed.positionals[0]) {
+      case 'init': {
+        const result = await runInit({
+          publicUrl: getStringFlag(parsed, 'publicUrl') ?? getStringFlag(parsed, 'url'),
+          port: getStringFlag(parsed, 'port') ? Number(getStringFlag(parsed, 'port')) : undefined,
+          stacksRoot: getStringFlag(parsed, 'stacksRoot') ?? getStringFlag(parsed, 'stacks'),
+          nonInteractive: getBooleanFlag(parsed, 'nonInteractive'),
+        });
+        printJson(result);
+        return 0;
+      }
+      case 'status': {
+        const useJson = getBooleanFlag(parsed, 'json');
+        const status = runStatus();
+        if (useJson) {
+          printJson(status);
+        } else {
+          process.stdout.write(formatStatus(status));
+        }
+        return 0;
+      }
       case 'repo':
         return handleRepoCommand(parsed);
       case 'env':

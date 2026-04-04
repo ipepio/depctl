@@ -81,6 +81,7 @@ function toServerConfig(serverYaml: ServerYaml): ServerConfig {
 
   return {
     id: serverYaml.server.id,
+    publicUrl: serverYaml.server.public_url,
     port: Number(process.env.PORT ?? serverYaml.server.port),
     history: {
       maxJobs: serverYaml.server.history.max_jobs,
