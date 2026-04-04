@@ -15,6 +15,14 @@ curl -sSL https://raw.githubusercontent.com/ipepio/docker-deploy-webhook/main/in
 The script installs prerequisites, creates `/opt/depctl` and `/opt/stacks`,
 starts the service and shows you the admin tokens.
 
+### Upgrade existing installation
+
+```bash
+curl -sSL https://raw.githubusercontent.com/ipepio/docker-deploy-webhook/main/install.sh | bash -s -- --upgrade
+```
+
+Backs up config, pulls latest, rebuilds, restarts. See [docs/upgrading.md](docs/upgrading.md) for details.
+
 ## Quick start
 
 ```bash

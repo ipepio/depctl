@@ -307,6 +307,111 @@ WRAPPER
 }
 
 # ─────────────────────────────────────────────
+# F14 — Upgrade existing installation
+# ─────────────────────────────────────────────
+upgrade_existing() {
+  _section "Upgrading existing depctl installation"
+
+  if [[ ! -d "${INSTALL_DIR}" ]]; then
+    _error "No existing installation found at ${INSTALL_DIR}."
+    _error "Run the installer without --upgrade for a fresh install."
+    exit 1
+  fi
+
+  # 1. Verify current install is healthy before touching anything
+  _info "Verifying current installation..."
+  if [[ ! -f "${INSTALL_DIR}/docker-compose.yml" ]]; then
+    _error "Missing docker-compose.yml in ${INSTALL_DIR}. Is this a valid depctl install?"
+    exit 1
+  fi
+
+  # 2. Record current image digest for rollback info
+  local current_digest
+  current_digest="$(docker inspect --format='{{.Image}}' docker-deploy-webhook 2>/dev/null || echo 'unknown')"
+  _info "Current image: ${current_digest}"
+
+  # 3. Backup config (non-destructive — never overwrite user files)
+  local backup_dir="${INSTALL_DIR}/backup-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$backup_dir"
+  cp -a "${INSTALL_DIR}/.env" "$backup_dir/.env" 2>/dev/null || true
+  cp -a "${INSTALL_DIR}/config/server.yml" "$backup_dir/server.yml" 2>/dev/null || true
+  if [[ -d "${INSTALL_DIR}/config/repos" ]]; then
+    cp -a "${INSTALL_DIR}/config/repos" "$backup_dir/repos" 2>/dev/null || true
+  fi
+  _info "Config backed up to: ${backup_dir}"
+
+  # 4. Download updated artifacts (compose, Dockerfile, example files only)
+  _info "Downloading latest artifacts..."
+  local upgrade_files=(
+    "docker-compose.yml"
+    "Dockerfile"
+    ".env.example"
+    "config/server.example.yml"
+  )
+
+  for file in "${upgrade_files[@]}"; do
+    local dest="${INSTALL_DIR}/${file}"
+    local dest_dir
+    dest_dir="$(dirname "$dest")"
+    mkdir -p "$dest_dir"
+
+    if ! curl -sSfL "${GITHUB_RAW}/${file}" -o "${dest}.tmp"; then
+      _error "Failed to download: ${GITHUB_RAW}/${file}"
+      _error "Upgrade aborted. Your config is safe at: ${backup_dir}"
+      rm -f "${dest}.tmp"
+      exit 1
+    fi
+    mv "${dest}.tmp" "$dest"
+  done
+  _info "Artifacts updated ✓"
+
+  # 5. Preserve user config: .env and server.yml are NOT overwritten
+  _info "User config preserved (.env, config/server.yml, config/repos/*)"
+
+  # 6. Rebuild and restart services
+  _info "Rebuilding and restarting services..."
+  cd "${INSTALL_DIR}"
+  docker compose build --no-cache webhook
+  docker compose up -d webhook redis
+
+  # 7. Health check
+  _info "Waiting for webhook to become healthy..."
+  local port
+  port="$(grep -E '^PORT=' "${INSTALL_DIR}/.env" | cut -d= -f2 | tr -d '"' || echo 8080)"
+  port="${port:-8080}"
+  local retries=30
+
+  while [[ $retries -gt 0 ]]; do
+    if curl -sf "http://localhost:${port}/health" &>/dev/null; then
+      _info "Webhook is healthy ✓"
+      break
+    fi
+    sleep 1
+    (( retries-- ))
+  done
+
+  if [[ $retries -eq 0 ]]; then
+    _error "Webhook did not respond after upgrade."
+    _error "Rollback: cp ${backup_dir}/* ${INSTALL_DIR}/ && docker compose up -d --build"
+    docker compose logs --tail 20 webhook
+    exit 1
+  fi
+
+  # 8. Update wrapper
+  install_depctl_wrapper
+
+  echo ""
+  echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${GREEN}${BOLD}  depctl upgraded successfully ✅${NC}"
+  echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+  echo "  Backup:   ${backup_dir}"
+  echo "  Health:   http://localhost:${port}/health"
+  echo "  Rollback: cp ${backup_dir}/* ${INSTALL_DIR}/ && docker compose up -d --build"
+  echo ""
+}
+
+# ─────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────
 main() {
@@ -314,6 +419,13 @@ main() {
   echo -e "${BOLD}depctl installer${NC}"
   echo -e "Source: ${REPO_URL}"
   echo ""
+
+  # Detect --upgrade flag
+  if [[ "${1:-}" == "--upgrade" || "${1:-}" == "upgrade" ]]; then
+    check_prerequisites
+    upgrade_existing
+    exit 0
+  fi
 
   check_prerequisites
   create_directories
