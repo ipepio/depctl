@@ -26,7 +26,7 @@ function renderMenu(options: SelectOption[], selected: number, title: string): s
 }
 
 function clearMenu(lineCount: number): void {
-  stdout.write(CURSOR_UP(lineCount - 1));
+  stdout.write(CURSOR_UP(lineCount));
   for (let i = 0; i < lineCount; i++) {
     stdout.write(CLEAR_LINE);
     if (i < lineCount - 1) stdout.write('\n');
