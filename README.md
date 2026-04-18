@@ -2,116 +2,144 @@
 
 Self-hosted deploy webhook server + CLI for Docker Compose stacks.
 
-Receives webhooks from GitHub Actions, validates them and deploys new images
-to locally-managed stacks. All sensitive administration is done locally via
-a CLI/TUI — nothing sensitive is exposed over HTTP.
+Receives webhooks from GitHub Actions, validates auth (Bearer + HMAC + anti-replay),
+and deploys new images to locally-managed stacks. All admin operations happen via
+a native CLI on the server — nothing sensitive is exposed over HTTP.
 
 ## Install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/ipepio/docker-deploy-webhook/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/ipepio/depctl/main/install.sh | sudo bash
 ```
 
-The script installs prerequisites, creates `/opt/depctl` and `/opt/stacks`,
-starts the service and shows you the admin tokens.
+The installer will:
+- Install Docker, Node.js, and other prerequisites (with confirmation)
+- Pull the pre-built image from `ghcr.io/ipepio/depctl`
+- Start the webhook server + Redis
+- Install the `depctl` CLI on your PATH
+- Add your user to the `docker` group
 
-### Upgrade existing installation
+### Update
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/ipepio/docker-deploy-webhook/main/install.sh | bash -s -- --upgrade
+depctl update
 ```
 
-Backs up config, pulls latest, rebuilds, restarts. See [docs/upgrading.md](docs/upgrading.md) for details.
+Downloads the latest CLI bundle + pulls the latest webhook image + restarts services.
 
 ## Quick start
 
 ```bash
-# 1. Configure instance (public URL, port, stacks dir)
-depctl init
-
-# 2. Add a repo (interactive wizard: image, secrets, stack, GHCR auth)
+# 1. Add a repo (interactive wizard)
 depctl repo add
 
-# 3. Generate the GitHub Actions workflow
-depctl workflow generate
+# 2. Generate the GitHub Actions workflow
+depctl workflow generate --repository owner/repo
 
-# 4. Validate config and restart
+# 3. Validate config and restart
 depctl validate
-docker compose restart webhook
-```
+docker compose -f /opt/depctl/docker-compose.yml restart webhook
 
-## Commands
-
-```
-depctl init                       Configure instance (URL, port, stacks dir)
-depctl status                     Health check of all components
-
-depctl repo add                   Interactive wizard: image, secrets, stack, GHCR auth
-depctl repo remove                Remove repo with confirmation
-depctl repo list                  List configured repos
-depctl repo show  <owner/repo>    Environment matrix (branches, tags, workflows, stack)
-depctl repo edit  --repository    Edit repo config
-
-depctl repo secrets generate      Generate Bearer + HMAC tokens (non-destructive)
-depctl repo secrets show          Show tokens formatted for GitHub Secrets
-depctl repo secrets rotate        Regenerate tokens with confirmation
-
-depctl env add   --repository --environment
-depctl env edit  --repository --environment
-
-depctl logs    <owner/repo>       Logs of last deploy (--job <id> for specific job)
-depctl history <owner/repo>       Table of last N deploys (--limit, --env, --json)
-depctl rollback <owner/repo>      Roll back to last successful tag (with confirmation)
-
-depctl deploy manual              Trigger deploy manually
-depctl deploy redeploy-last-successful
-depctl deploy retry --job-id
-
-depctl stack init                 Generate docker-compose.yml for a repo
-depctl stack show                 Show stack metadata
-depctl stack service add          Add a service (postgres, redis, nginx...)
-depctl stack service edit
-
-depctl workflow generate          Interactive wizard → .github/workflows/release.yml
-                                  (--write to save directly, --output <path>)
-
-depctl validate                   Validate all config before restarting webhook
-
-depctl migrate scan               Scan for v1 config to migrate
-depctl migrate plan
-depctl migrate apply
-
-depctl tui                        Interactive terminal UI
+# 4. Add the secrets shown by the wizard to your GitHub repo
+#    Settings > Secrets and variables > Actions
 ```
 
 ## How it works
 
 ```
 GitHub Actions
-    │
-    │  POST /deploy
-    │  Authorization: Bearer <token>
-    │  X-Deploy-Timestamp + X-Deploy-Signature (HMAC-SHA256)
-    ▼
-webhook container
-    │  validates auth + payload against config/repos/*.yml
-    │  enqueues job in Redis
-    ▼
+    |
+    |  POST /deploy
+    |  Authorization: Bearer <token>
+    |  X-Deploy-Timestamp + X-Deploy-Signature (HMAC-SHA256)
+    v
+webhook (Docker container)
+    |  validates auth + payload against config
+    |  enqueues job in Redis (BullMQ)
+    v
 worker
-    │  docker compose pull
-    │  docker compose up -d
-    │  optional healthcheck
-    │  saves rollback state
-    ▼
-stack running in /opt/stacks/<owner>/<repo>/
+    |  docker compose pull
+    |  docker compose up -d
+    |  healthcheck + rollback if needed
+    |  persists state + notifies
+    v
+stack running at /opt/stacks/<owner>/<repo>/
 ```
 
-Two surfaces:
+| Surface | Who | What |
+|---------|-----|------|
+| **Remote** — `POST /deploy`, `GET /health` | GitHub Actions | Trigger and observe deploys |
+| **Local** — `depctl` CLI | Server operator | Configure repos, secrets, stacks, proxy |
 
-| Surface | Who uses it | What it does |
-|---------|-------------|--------------|
-| Remote (`POST /deploy`, `GET /health`, `GET /deployments/recent`) | GitHub Actions, monitoring | Trigger and observe deploys |
-| Local (`depctl` CLI / TUI) | Operator on the server | Configure repos, secrets, stacks |
+## Commands
+
+```
+Instance
+  depctl init                         Configure instance (URL, port, stacks dir)
+  depctl status [--json]              Health of all components
+  depctl update                       Update depctl CLI + webhook image
+
+Repositories
+  depctl repo add                     Interactive wizard
+  depctl repo list                    List configured repos
+  depctl repo show  --repository      Environment matrix
+  depctl repo edit  [--repository]    Interactive editor (arrow-key selector)
+  depctl repo remove --repository     Remove with confirmation
+
+Secrets
+  depctl repo secrets generate --repository
+  depctl repo secrets show     --repository [--json]
+  depctl repo secrets rotate   --repository [--force]
+
+Environments
+  depctl env add  --repository --environment
+  depctl env edit --repository --environment
+
+Deploy operations
+  depctl logs    <owner/repo>         Logs of last deploy
+  depctl history <owner/repo>         Recent deploy history
+  depctl rollback <owner/repo>        Roll back to last successful tag
+  depctl deploy manual                Trigger deploy manually
+  depctl deploy redeploy-last-successful
+  depctl deploy retry --job-id
+
+Stack management
+  depctl stack init                   Generate docker-compose.yml for a repo
+  depctl stack show                   Show stack metadata
+  depctl stack service add            Add a service (postgres, redis, custom...)
+  depctl stack service edit
+
+Workflow
+  depctl workflow generate            Generate GitHub Actions workflow
+                                      (--write to save, --output <path>)
+
+Proxy (Caddy)
+  depctl proxy init                   Initialize reverse proxy
+  depctl proxy status                 Caddy health, routes, SSL
+  depctl proxy domains                List all proxy routes
+  depctl proxy enable <owner/repo>    Add proxy route
+  depctl proxy disable <owner/repo>   Remove proxy route
+  depctl proxy ssl <owner/repo>       Configure SSL mode
+
+Other
+  depctl validate                     Validate all config
+  depctl tui                          Interactive terminal UI
+```
+
+## Stack services
+
+The stack builder generates `docker-compose.yml` files with these service types:
+
+| Kind | Image | Deployable | Use case |
+|------|-------|-----------|----------|
+| `app` | Your app image | Yes | Main application |
+| `worker` | Your app image | Yes | Background jobs |
+| `postgres` | `postgres:16-alpine` | No | Database |
+| `redis` | `redis:7-alpine` | No | Cache/queue |
+| `nginx` | `nginx:1.27-alpine` | No | Reverse proxy |
+| `custom` | Any Docker image | Configurable | Anything else |
+
+Custom services accept any Docker image with optional ports, volumes, environment variables, and commands.
 
 ## Repo config
 
@@ -129,69 +157,82 @@ environments:
     runtime_env_file:  /opt/stacks/acme/payments-api/.deploy.env
     services:          [app, worker]
     allowed_workflows: [Release]
-    allowed_branches:  [master]
+    allowed_branches:  [main]
     allowed_tag_pattern: '^v[0-9]+\.[0-9]+\.[0-9]+$'
     healthcheck:
-      enabled: false
+      enabled: true
+      url: http://127.0.0.1:3000/health
 ```
-
-See `docs/multi-environment.md` for production + staging setups.
 
 ## GitHub Secrets
 
-After `depctl repo add` (or `depctl repo secrets show`):
+After `depctl repo add`, copy these secrets to your GitHub repo:
 
 | Secret | Value |
 |--------|-------|
 | `DEPLOY_WEBHOOK_URL` | `https://deploy.yourserver.com` |
-| `DEPLOY_WEBHOOK_BEARER` | shown by `secrets show` |
-| `DEPLOY_WEBHOOK_HMAC` | shown by `secrets show` |
-
-Generate the workflow with `depctl workflow generate`.
+| `DEPLOY_WEBHOOK_BEARER` | shown by wizard |
+| `DEPLOY_WEBHOOK_HMAC` | shown by wizard |
 
 ## Remote API
 
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
-| `POST` | `/deploy` | Bearer + HMAC | Automatic webhook |
+| `POST` | `/deploy` | Bearer + HMAC | Deploy webhook |
 | `GET` | `/health` | None | Service health |
-| `GET` | `/jobs/:id` | Admin read | Job status |
-| `GET` | `/deployments/recent` | Admin read | Recent history |
+| `GET` | `/jobs/:id` | Admin read token | Job status |
+| `GET` | `/deployments/recent` | Admin read token | Recent history |
 
 ## Directory layout
 
 ```
 /opt/depctl/
+  depctl-cli.cjs          # CLI bundle (native Node.js)
+  docker-compose.yml      # webhook + redis
   config/
-    server.yml          # server config
-    repos/
-      acme--app.yml     # one file per repo
-  data/                 # job history + rollback state
-  .env                  # tokens and secrets
+    server.yml            # server config
+    repos/                # one YAML per repo
+  data/                   # job history + rollback state
+  .env                    # tokens and secrets
 
 /opt/stacks/
   <owner>/<repo>/
-    docker-compose.yml
-    .env                # app secrets and config
-    .deploy.env         # IMAGE_NAME + IMAGE_TAG (written per deploy)
+    docker-compose.yml    # generated by stack init
+    .env                  # app secrets (managed blocks)
+    .deploy.env           # IMAGE_NAME + IMAGE_TAG (written per deploy)
 ```
 
 ## Development
 
 ```bash
-npm run build           # TypeScript compile
-npm test                # Run tests (32 tests, 11 suites)
-npm run lint            # ESLint
-npm start               # Webhook mode
-npm run start:admin -- help   # Admin CLI
+npm install               # Install dependencies
+npm run build             # TypeScript compile
+npm run build:cli         # Bundle CLI with esbuild
+npm test                  # Jest tests
+npm run lint              # ESLint
+npm run dev               # Dev server with nodemon
 ```
 
-## Documentation
+## Tech stack
 
-- `docs/how-it-works-v2.md` — detailed internals
-- `docs/how-to-add-repo.md` — step-by-step repo setup
-- `docs/multi-environment.md` — production + staging configuration
-- `docs/troubleshooting.md` — GHCR auth, branch vs tag, common errors
-- `docs/release-checklist.md` — release process
-- `docs/runbook.md` — day-to-day operations
-- `docs/arquitectura-v2.md` — architecture contracts
+- **Runtime**: Node.js 20, TypeScript (strict)
+- **Server**: Express
+- **Queue**: BullMQ + Redis
+- **Config**: YAML + Zod validation
+- **Logging**: Winston (structured JSON)
+- **Notifications**: Telegram, Resend (email)
+- **Tests**: Jest + Supertest
+- **Build**: esbuild (CLI bundle), Docker (webhook image)
+
+## Security
+
+- Local config is authoritative — payloads never decide paths, compose files, or commands
+- Secrets only in environment variables, never in YAML or code
+- No shell command construction from external data (`execFile` with array args only)
+- Only `docker compose` on validated compose files + services
+- Auto deploys: `POST /deploy` with Bearer + HMAC + anti-replay
+- Admin operations: local CLI only, never via remote API
+
+## License
+
+[MPL-2.0](LICENSE) — Mozilla Public License 2.0
