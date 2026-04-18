@@ -327,7 +327,7 @@ install_depctl_wrapper() {
 #!/usr/bin/env bash
 # depctl — wrapper installed by install.sh
 # Routes to the admin container in the correct project directory
-exec docker compose --project-directory "${INSTALL_DIR}" --profile admin run --rm admin "\$@"
+exec docker compose --project-directory "${INSTALL_DIR}" --profile admin run --rm --no-deps admin "\$@"
 WRAPPER
 
   chmod +x "$wrapper_path"
@@ -441,6 +441,32 @@ upgrade_existing() {
 }
 
 # ─────────────────────────────────────────────
+# Add user to docker group (avoids sudo for depctl)
+# ─────────────────────────────────────────────
+configure_docker_access() {
+  local target_user="${SUDO_USER:-}"
+
+  if [[ -z "$target_user" ]]; then
+    return
+  fi
+
+  if id -nG "$target_user" 2>/dev/null | grep -qw docker; then
+    _info "User '$target_user' already in docker group"
+    return
+  fi
+
+  echo ""
+  read -rp "  Add '$target_user' to the docker group so depctl works without sudo? [Y/n] " answer </dev/tty
+  answer="${answer:-Y}"
+
+  if [[ "$answer" =~ ^[Yy]$ ]]; then
+    usermod -aG docker "$target_user"
+    _info "User '$target_user' added to docker group"
+    _warn "Log out and back in (or run 'newgrp docker') for it to take effect"
+  fi
+}
+
+# ─────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────
 main() {
@@ -462,6 +488,7 @@ main() {
   generate_admin_tokens
   start_services
   install_depctl_wrapper
+  configure_docker_access
   print_summary
 }
 
