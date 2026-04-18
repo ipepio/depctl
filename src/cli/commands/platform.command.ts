@@ -197,3 +197,79 @@ export async function handleMigrateApply(_parsed: ParsedCommandArgs): Promise<nu
 export async function handleTui(_parsed: ParsedCommandArgs): Promise<number> {
   return runTui();
 }
+
+// ── update ───────────────────────────────────────────────────────────────────
+export async function handleUpdate(_parsed: ParsedCommandArgs): Promise<number> {
+  const { execFileSync } = await import('child_process');
+  const { writeFileSync, renameSync, unlinkSync } = await import('fs');
+  const https = await import('https');
+  const http = await import('http');
+
+  const installDir = process.env.CONFIG_PATH
+    ? require('path').dirname(require('path').dirname(process.env.CONFIG_PATH))
+    : '/opt/depctl';
+
+  const cliPath = require('path').join(installDir, 'depctl-cli.cjs');
+  const tmpPath = `${cliPath}.tmp`;
+
+  // 1. Download latest CLI bundle
+  process.stdout.write('Downloading latest CLI...\n');
+  const downloadUrl = 'https://github.com/ipepio/depctl/releases/latest/download/depctl-cli.cjs';
+
+  await new Promise<void>((resolve, reject) => {
+    const follow = (url: string, redirects = 0): void => {
+      if (redirects > 5) { reject(new Error('Too many redirects')); return; }
+      const mod = url.startsWith('https') ? https : http;
+      mod.get(url, { headers: { 'User-Agent': 'depctl' } }, (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          follow(res.headers.location, redirects + 1);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          reject(new Error(`Download failed: HTTP ${res.statusCode}`));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          writeFileSync(tmpPath, Buffer.concat(chunks));
+          resolve();
+        });
+        res.on('error', reject);
+      }).on('error', reject);
+    };
+    follow(downloadUrl);
+  });
+
+  renameSync(tmpPath, cliPath);
+  process.stdout.write('CLI updated ✓\n');
+
+  // 2. Pull latest Docker image
+  process.stdout.write('Pulling latest webhook image...\n');
+  try {
+    execFileSync('docker', ['compose', '--project-directory', installDir, 'pull', 'webhook'], {
+      stdio: 'inherit',
+    });
+  } catch {
+    process.stderr.write('[warn] Failed to pull webhook image. Is Docker running?\n');
+  }
+
+  // 3. Restart services
+  process.stdout.write('Restarting services...\n');
+  try {
+    execFileSync(
+      'docker',
+      ['compose', '--project-directory', installDir, 'up', '-d', 'webhook', 'redis'],
+      { stdio: 'inherit' },
+    );
+    process.stdout.write('Services restarted ✓\n');
+  } catch {
+    process.stderr.write('[warn] Failed to restart services.\n');
+  }
+
+  // 4. Clean up old tmp file if exists
+  try { unlinkSync(tmpPath); } catch { /* ignore */ }
+
+  process.stdout.write('\ndepctl updated successfully ✓\n');
+  return 0;
+}

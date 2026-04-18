@@ -16,6 +16,7 @@ import {
   handleMigratePlan,
   handleMigrateApply,
   handleTui,
+  handleUpdate,
 } from './commands/platform.command';
 import {
   handleRepoAdd,
@@ -86,6 +87,8 @@ depctl usage:
   depctl migrate plan
   depctl migrate apply
 
+  depctl update                      Update depctl CLI + webhook image
+
   depctl tui
 
   depctl proxy init    [--email <acme-email>]     Initialize reverse proxy (Caddy, ports 80/443)
@@ -137,6 +140,7 @@ function buildRouter(): CommandRouter {
   router.register('migrate apply', handleMigrateApply);
 
   router.register('tui', handleTui);
+  router.register('update', handleUpdate);
 
   router.register('proxy init', handleProxyInit);
   router.register('proxy status', handleProxyStatus);
@@ -155,6 +159,21 @@ export async function runAdminCommand(args: string[]): Promise<number> {
 
   if (parsed.positionals.length === 0 || ['help', '--help', '-h'].includes(parsed.positionals[0])) {
     process.stdout.write(`${HELP}\n`);
+    return 0;
+  }
+
+  if (parsed.positionals[0] === '--completions') {
+    const type = parsed.positionals[1];
+    if (type === 'repos') {
+      const { listRepositories } = await import('./use-cases/repo-config');
+      for (const r of listRepositories()) process.stdout.write(`${r.repository}\n`);
+    } else if (type === 'commands') {
+      const commands = [
+        'init', 'status', 'repo', 'env', 'logs', 'history', 'rollback',
+        'deploy', 'stack', 'workflow', 'validate', 'migrate', 'tui', 'proxy',
+      ];
+      for (const c of commands) process.stdout.write(`${c}\n`);
+    }
     return 0;
   }
 

@@ -372,7 +372,42 @@ exec node "${INSTALL_DIR}/depctl-cli.cjs" admin "\$@"
 WRAPPER
 
   chmod +x "$wrapper_path"
+
+  # Install bash completion
+  local completion_path="/etc/bash_completion.d/depctl"
+  cat > "$completion_path" <<'COMPLETION'
+_depctl_completions() {
+  local cur prev commands
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+  commands="init status repo env logs history rollback deploy stack workflow validate migrate tui proxy help"
+  repo_sub="add list show edit remove secrets"
+  deploy_sub="manual redeploy-last-successful retry"
+  stack_sub="init show service"
+  proxy_sub="init status domains enable disable ssl"
+
+  case "${COMP_WORDS[1]}" in
+    repo)
+      case "${prev}" in
+        --repository) COMPREPLY=($(compgen -W "$(depctl --completions repos 2>/dev/null)" -- "$cur")); return ;;
+        repo) COMPREPLY=($(compgen -W "$repo_sub" -- "$cur")); return ;;
+      esac
+      ;;
+    deploy) COMPREPLY=($(compgen -W "$deploy_sub" -- "$cur")); return ;;
+    stack) COMPREPLY=($(compgen -W "$stack_sub" -- "$cur")); return ;;
+    proxy) COMPREPLY=($(compgen -W "$proxy_sub" -- "$cur")); return ;;
+  esac
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    COMPREPLY=($(compgen -W "$commands" -- "$cur"))
+  fi
+}
+complete -F _depctl_completions depctl
+COMPLETION
+
   _info "Installed: ${wrapper_path}"
+  _info "Bash completion installed"
   _info "Run 'depctl help' to get started"
 }
 
