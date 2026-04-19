@@ -33,11 +33,13 @@ export interface StatusResult {
   };
 }
 
+declare const __APP_VERSION__: string | undefined;
+
 function getPackageVersion(): string {
+  if (typeof __APP_VERSION__ !== 'undefined') return __APP_VERSION__;
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const pkg = require('../../../package.json') as { version: string };
-    return pkg.version;
+    return (require('../../../package.json') as { version: string }).version;
   } catch {
     return 'unknown';
   }

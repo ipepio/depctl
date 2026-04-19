@@ -50,7 +50,8 @@ jobs:
       - name: Build CLI bundle
         run: |
           npm ci
-          npm run build:cli
+          VERSION="${GITHUB_REF_NAME#v}"
+          npx esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=dist/depctl-cli.cjs --format=cjs --external:readline/promises --define:__APP_VERSION__="'\"${VERSION}\"'"
 
       - name: Upload CLI to release
         run: |

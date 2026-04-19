@@ -1,13 +1,13 @@
 {
   "name": "depctl",
-  "version": "0.1.0",
+  "version": "0.0.7",
   "private": true,
   "description": "Per-server webhook service for Docker Compose deployments",
   "main": "dist/index.js",
   "scripts": {
     "dev": "nodemon --watch src --exec ts-node src/index.ts",
     "build": "tsc",
-    "build:cli": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=dist/depctl-cli.cjs --format=cjs --external:readline/promises",
+    "build:cli": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=dist/depctl-cli.cjs --format=cjs --external:readline/promises --define:__APP_VERSION__='\"dev\"'",
     "start": "node dist/index.js webhook",
     "start:webhook": "node dist/index.js webhook",
     "start:admin": "node dist/index.js admin",
