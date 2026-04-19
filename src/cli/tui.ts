@@ -1,4 +1,5 @@
 import { printJson, resolveOptionalString, resolveRequiredString } from './io';
+import { resolveRepository } from './resolve-repo';
 import {
   inferExistingService,
   parseSupportedServiceKinds,
@@ -60,7 +61,7 @@ async function promptMenuChoice(): Promise<string> {
 }
 
 async function promptRepository(): Promise<string> {
-  return resolveRequiredString(undefined, 'Repository (owner/repo)');
+  return resolveRepository();
 }
 
 async function promptEnvironment(): Promise<string> {

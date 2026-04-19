@@ -1,6 +1,7 @@
 import { type ParsedCommandArgs } from '../argv';
 import { getBooleanFlag, getStringFlag } from '../argv';
 import { printJson, resolveRequiredString } from '../io';
+import { resolveRepository } from '../resolve-repo';
 import { withLocalRuntime } from '../runtime';
 import { manualDeploy, redeployLastSuccessful, retryJob } from '../use-cases/deploy-actions';
 import {
@@ -14,10 +15,7 @@ import {
 
 // ── deploy manual ───────────────────────────────────────────────────────────
 export async function handleDeployManual(parsed: ParsedCommandArgs): Promise<number> {
-  const repository = await resolveRequiredString(
-    getStringFlag(parsed, 'repository'),
-    'Repository (owner/repo)',
-  );
+  const repository = await resolveRepository(getStringFlag(parsed, 'repository'));
   const environment = await resolveRequiredString(
     getStringFlag(parsed, 'environment'),
     'Environment',
@@ -34,10 +32,7 @@ export async function handleDeployManual(parsed: ParsedCommandArgs): Promise<num
 
 // ── deploy redeploy-last-successful ─────────────────────────────────────────
 export async function handleRedeployLast(parsed: ParsedCommandArgs): Promise<number> {
-  const repository = await resolveRequiredString(
-    getStringFlag(parsed, 'repository'),
-    'Repository (owner/repo)',
-  );
+  const repository = await resolveRepository(getStringFlag(parsed, 'repository'));
   const environment = await resolveRequiredString(
     getStringFlag(parsed, 'environment'),
     'Environment',
@@ -65,9 +60,8 @@ export async function handleRetry(parsed: ParsedCommandArgs): Promise<number> {
 
 // ── history ─────────────────────────────────────────────────────────────────
 export async function handleHistory(parsed: ParsedCommandArgs): Promise<number> {
-  const repository = await resolveRequiredString(
+  const repository = await resolveRepository(
     parsed.positionals[1] ?? getStringFlag(parsed, 'repository'),
-    'Repository (owner/repo)',
   );
   const useJson = getBooleanFlag(parsed, 'json');
   const jobs = await withLocalRuntime(
@@ -89,9 +83,8 @@ export async function handleHistory(parsed: ParsedCommandArgs): Promise<number> 
 
 // ── logs ─────────────────────────────────────────────────────────────────────
 export async function handleLogs(parsed: ParsedCommandArgs): Promise<number> {
-  const repository = await resolveRequiredString(
+  const repository = await resolveRepository(
     parsed.positionals[1] ?? getStringFlag(parsed, 'repository'),
-    'Repository (owner/repo)',
   );
   const useJson = getBooleanFlag(parsed, 'json');
   const job = await withLocalRuntime(
@@ -117,9 +110,8 @@ export async function handleLogs(parsed: ParsedCommandArgs): Promise<number> {
 
 // ── rollback ─────────────────────────────────────────────────────────────────
 export async function handleRollback(parsed: ParsedCommandArgs): Promise<number> {
-  const repository = await resolveRequiredString(
+  const repository = await resolveRepository(
     parsed.positionals[1] ?? getStringFlag(parsed, 'repository'),
-    'Repository (owner/repo)',
   );
   const environment =
     getStringFlag(parsed, 'env') ?? getStringFlag(parsed, 'environment') ?? 'production';

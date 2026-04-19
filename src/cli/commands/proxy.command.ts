@@ -1,6 +1,7 @@
 import { type ParsedCommandArgs } from '../argv';
 import { getBooleanFlag, getStringFlag } from '../argv';
-import { printJson, resolveRequiredString } from '../io';
+import { printJson } from '../io';
+import { resolveRepository } from '../resolve-repo';
 import {
   runProxyInit,
   runProxyStatus,
@@ -57,9 +58,8 @@ export async function handleProxyDomains(parsed: ParsedCommandArgs): Promise<num
 
 // ── proxy enable ──────────────────────────────────────────────────────────────
 export async function handleProxyEnable(parsed: ParsedCommandArgs): Promise<number> {
-  const repository = await resolveRequiredString(
+  const repository = await resolveRepository(
     parsed.positionals[2] ?? getStringFlag(parsed, 'repository'),
-    'Repository (owner/repo)',
   );
   const environment =
     getStringFlag(parsed, 'environment') ?? getStringFlag(parsed, 'env') ?? 'production';
@@ -89,9 +89,8 @@ export async function handleProxyEnable(parsed: ParsedCommandArgs): Promise<numb
 
 // ── proxy disable ─────────────────────────────────────────────────────────────
 export async function handleProxyDisable(parsed: ParsedCommandArgs): Promise<number> {
-  const repository = await resolveRequiredString(
+  const repository = await resolveRepository(
     parsed.positionals[2] ?? getStringFlag(parsed, 'repository'),
-    'Repository (owner/repo)',
   );
   const environment =
     getStringFlag(parsed, 'environment') ?? getStringFlag(parsed, 'env') ?? 'production';
@@ -108,9 +107,8 @@ export async function handleProxyDisable(parsed: ParsedCommandArgs): Promise<num
 
 // ── proxy ssl ─────────────────────────────────────────────────────────────────
 export async function handleProxySsl(parsed: ParsedCommandArgs): Promise<number> {
-  const repository = await resolveRequiredString(
+  const repository = await resolveRepository(
     parsed.positionals[2] ?? getStringFlag(parsed, 'repository'),
-    'Repository (owner/repo)',
   );
   const environment =
     getStringFlag(parsed, 'environment') ?? getStringFlag(parsed, 'env') ?? 'production';

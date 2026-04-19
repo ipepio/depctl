@@ -46,7 +46,9 @@ export function readEnvFile(filePath = resolveServiceEnvPath()): EnvEntries {
 
 export function applyEnvEntriesToProcess(entries: EnvEntries): void {
   for (const [key, value] of Object.entries(entries)) {
-    process.env[key] = value;
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+    }
   }
 }
 

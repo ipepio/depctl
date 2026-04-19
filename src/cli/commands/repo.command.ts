@@ -2,6 +2,7 @@ import { type ParsedCommandArgs } from '../argv';
 import { getBooleanFlag, getStringFlag, getListFlag } from '../argv';
 import { printJson, resolveRequiredString, resolveOptionalString, resolveList, confirm } from '../io';
 import { selectFromList, type SelectOption } from '../select';
+import { resolveRepository } from '../resolve-repo';
 import {
   addEnvironment,
   editEnvironment,
@@ -57,10 +58,7 @@ export async function handleRepoList(_parsed: ParsedCommandArgs): Promise<number
 
 // ── repo show ───────────────────────────────────────────────────────────────
 export async function handleRepoShow(parsed: ParsedCommandArgs): Promise<number> {
-  const repository = await resolveRequiredString(
-    getStringFlag(parsed, 'repository'),
-    'Repository (owner/repo)',
-  );
+  const repository = await resolveRepository(getStringFlag(parsed, 'repository'));
   const useJson = getBooleanFlag(parsed, 'json');
   const repoYaml = showRepository(repository);
   if (useJson) {
@@ -72,30 +70,6 @@ export async function handleRepoShow(parsed: ParsedCommandArgs): Promise<number>
 }
 
 // ── repo edit ───────────────────────────────────────────────────────────────
-async function selectRepository(flagValue?: string): Promise<string> {
-  if (flagValue) return flagValue;
-
-  const repos = listRepositories();
-  if (repos.length === 0) {
-    throw new Error('No repositories configured. Run: depctl repo add');
-  }
-
-  if (!process.stdin.isTTY) {
-    throw new Error('Missing --repository flag');
-  }
-
-  const options: SelectOption[] = repos.map((r) => ({
-    label: r.repository,
-    value: r.repository,
-  }));
-
-  const selected = await selectFromList(options, 'Repository');
-  if (selected === '__exit__') {
-    process.stdout.write('Cancelled.\n');
-    process.exit(0);
-  }
-  return selected;
-}
 
 async function interactiveRepoEdit(repository: string): Promise<number> {
   const repoYaml = showRepository(repository);
@@ -137,6 +111,7 @@ async function interactiveRepoEdit(repository: string): Promise<number> {
       fields.push({ label: 'Remove stack service', value: 'removeService', detail: stackServices.join(', ') });
     }
 
+    fields.push({ label: 'Secrets', value: 'secrets', detail: 'view, rotate' });
     fields.push({ label: 'Done', value: '__done__', detail: 'save and exit' });
 
     const choice = await selectFromList(fields, `Edit ${repository} [${environment}]`);
@@ -223,6 +198,29 @@ async function interactiveRepoEdit(repository: string): Promise<number> {
         }
         break;
       }
+      case 'secrets': {
+        const secretActions: SelectOption[] = [
+          { label: 'View secrets', value: 'view', detail: 'show current bearer + HMAC' },
+          { label: 'Rotate secrets', value: 'rotate', detail: 'generate new secrets (old ones stop working)' },
+        ];
+        const action = await selectFromList(secretActions, 'Secrets');
+        if (action === '__exit__') break;
+
+        if (action === 'view') {
+          try {
+            process.stdout.write(formatMultiEnvSecrets(showMultiEnvSecrets(repository)));
+          } catch (e) {
+            process.stderr.write(`${String(e)}\n`);
+          }
+        } else if (action === 'rotate') {
+          const ok = await confirm('Rotate secrets? Old secrets will stop working', false);
+          if (ok) {
+            const secrets = rotateRepoSecrets(repository);
+            process.stdout.write(formatRotateChecklist(secrets));
+          }
+        }
+        break;
+      }
     }
   }
 
@@ -248,7 +246,7 @@ export async function handleRepoEdit(parsed: ParsedCommandArgs): Promise<number>
     getStringFlag(parsed, 'hmacEnv') ||
     getBooleanFlag(parsed, 'refreshEnvNames');
 
-  const repository = await selectRepository(flagRepo);
+  const repository = await resolveRepository(flagRepo);
 
   if (hasDirectFlags) {
     const result = await editRepository({
@@ -274,10 +272,7 @@ export async function handleRepoEdit(parsed: ParsedCommandArgs): Promise<number>
 
 // ── repo remove ─────────────────────────────────────────────────────────────
 export async function handleRepoRemove(parsed: ParsedCommandArgs): Promise<number> {
-  const repository = await resolveRequiredString(
-    getStringFlag(parsed, 'repository'),
-    'Repository (owner/repo)',
-  );
+  const repository = await resolveRepository(getStringFlag(parsed, 'repository'));
   if (!getBooleanFlag(parsed, 'force')) {
     const answer = await resolveRequiredString(
       undefined,
@@ -299,20 +294,14 @@ export async function handleRepoRemove(parsed: ParsedCommandArgs): Promise<numbe
 
 // ── repo secrets generate ───────────────────────────────────────────────────
 export async function handleSecretsGenerate(parsed: ParsedCommandArgs): Promise<number> {
-  const repository = await resolveRequiredString(
-    getStringFlag(parsed, 'repository'),
-    'Repository (owner/repo)',
-  );
+  const repository = await resolveRepository(getStringFlag(parsed, 'repository'));
   printJson(generateRepoSecrets(repository));
   return 0;
 }
 
 // ── repo secrets show ───────────────────────────────────────────────────────
 export async function handleSecretsShow(parsed: ParsedCommandArgs): Promise<number> {
-  const repository = await resolveRequiredString(
-    getStringFlag(parsed, 'repository'),
-    'Repository (owner/repo)',
-  );
+  const repository = await resolveRepository(getStringFlag(parsed, 'repository'));
   const useJson = getBooleanFlag(parsed, 'json');
   if (useJson) {
     printJson(showRepoSecrets(repository));
@@ -324,10 +313,7 @@ export async function handleSecretsShow(parsed: ParsedCommandArgs): Promise<numb
 
 // ── repo secrets rotate ─────────────────────────────────────────────────────
 export async function handleSecretsRotate(parsed: ParsedCommandArgs): Promise<number> {
-  const repository = await resolveRequiredString(
-    getStringFlag(parsed, 'repository'),
-    'Repository (owner/repo)',
-  );
+  const repository = await resolveRepository(getStringFlag(parsed, 'repository'));
   if (!getBooleanFlag(parsed, 'force')) {
     const { confirm } = await import('../io');
     const ok = await confirm(
@@ -351,10 +337,7 @@ export async function handleSecretsRotate(parsed: ParsedCommandArgs): Promise<nu
 
 // ── env add/edit ────────────────────────────────────────────────────────────
 async function resolveEnvArgs(parsed: ParsedCommandArgs) {
-  const repository = await resolveRequiredString(
-    getStringFlag(parsed, 'repository'),
-    'Repository (owner/repo)',
-  );
+  const repository = await resolveRepository(getStringFlag(parsed, 'repository'));
   const environment = await resolveRequiredString(
     getStringFlag(parsed, 'environment'),
     'Environment',
