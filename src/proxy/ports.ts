@@ -1,4 +1,4 @@
-import { createServer } from 'net';
+import { createConnection } from 'net';
 
 export interface PortCheckResult {
   port: number;
@@ -7,12 +7,20 @@ export interface PortCheckResult {
 
 function checkPort(port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const server = createServer();
-    server.once('error', () => resolve(false));
-    server.once('listening', () => {
-      server.close(() => resolve(true));
+    const socket = createConnection({ port, host: '127.0.0.1' });
+    socket.setTimeout(1000);
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve(false);
     });
-    server.listen(port, '0.0.0.0');
+    socket.once('error', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once('timeout', () => {
+      socket.destroy();
+      resolve(true);
+    });
   });
 }
 
